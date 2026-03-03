@@ -1,0 +1,213 @@
+---
+title: Wallet Management Overview
+description: Comprehensive wallet management features in Rainbow Wallet
+---
+
+Rainbow Wallet provides a complete wallet management system supporting multiple wallet types, account creation, and secure key management.
+
+## Wallet Types
+
+Rainbow supports several wallet types to fit different security and usage needs:
+
+### HD Wallets (Hierarchical Deterministic)
+- **Mnemonic-based**: Generate multiple accounts from a single seed phrase
+- **Account derivation**: Uses BIP-44 derivation paths
+- **Easy backup**: Back up all accounts with one seed phrase
+
+### Read-Only Wallets
+- **Watch-only mode**: Monitor addresses without signing capability
+- **No private keys**: Track balances and transactions safely
+- **Multiple addresses**: Add any Ethereum address to watch
+
+### Hardware Wallets
+- **Ledger integration**: Connect and manage Ledger devices
+- **Secure signing**: Transactions signed on hardware device
+- **Multiple accounts**: Support for multiple derivation paths
+
+See [Hardware Wallets](/features/wallet/hardware-wallets) for Ledger integration details.
+
+## Wallet Store Architecture
+
+Rainbow uses a custom Zustand-based store for wallet state management:
+
+```typescript
+// From src/state/wallets/walletsStore.ts
+interface WalletsState {
+  walletReady: boolean;
+  selected: RainbowWallet | null;
+  wallets: AllRainbowWallets;
+  accountAddress: Address;
+  
+  setSelectedWallet: (wallet: RainbowWallet, address?: string) => Promise<void>;
+  updateWallets: (wallets: { [id: string]: RainbowWallet }) => Promise<void>;
+  loadWallets: () => Promise<AllRainbowWallets | void>;
+}
+```
+
+## Key Features
+
+### Multi-Wallet Support
+- Create and manage multiple wallets simultaneously
+- Switch between wallets seamlessly
+- Each wallet can contain multiple accounts
+- Customizable wallet names and colors
+
+### Account Management
+- Generate new accounts within existing wallets
+- Import accounts via private key or seed phrase
+- Custom account labels and emoji identifiers
+- ENS name integration for account display
+
+Learn more about [Account Management](/features/wallet/accounts).
+
+### Secure Key Storage
+- Private keys stored in device keychain (iOS Keychain/Android Keystore)
+- AES-256 encryption for sensitive data
+- Biometric authentication support
+- PIN code protection option
+
+### Wallet Initialization
+
+Wallets are initialized through a robust process:
+
+```typescript
+// From src/state/wallets/initializeWallet.ts
+const initializeWallet = async (props: InitializeWalletParams) => {
+  // 1. Run migrations if needed
+  if (shouldRunMigrations) {
+    await loadWallets();
+    await runMigrations();
+  }
+  
+  // 2. Load network configuration
+  await store.dispatch(settingsLoadNetwork());
+  
+  // 3. Initialize wallet with seed phrase or create new
+  const { isNew, walletAddress } = await walletInit({
+    seedPhrase, color, name, network
+  });
+  
+  // 4. Set up analytics and telemetry
+  const { walletType, walletAddressHash } = await getWalletContext(walletAddress);
+  analytics.setWalletContext({ walletAddressHash, walletType });
+  
+  // 5. Run keychain integrity checks
+  runKeychainIntegrityChecks();
+  
+  // 6. Set wallet as ready
+  setAccountAddress(walletAddress);
+  setWalletReady();
+  
+  return walletAddress;
+};
+```
+
+## User Workflows
+
+<Steps>
+  <Step title="Create New Wallet">
+    Users can create a new wallet from the welcome screen or settings:
+    - Generate a new 12 or 24-word seed phrase
+    - Choose wallet name and color
+    - Secure with biometric or PIN authentication
+    - Wallet is automatically backed up (if cloud backup enabled)
+  </Step>
+  
+  <Step title="Import Existing Wallet">
+    Import wallets using multiple methods:
+    - Enter seed phrase (12 or 24 words)
+    - Import private key
+    - Connect hardware wallet (Ledger)
+    - Watch-only address
+  </Step>
+  
+  <Step title="Switch Between Wallets">
+    Quickly switch active wallets:
+    - Tap wallet selector in navigation
+    - Choose from available wallets
+    - App state updates to selected wallet context
+    - Assets and transactions refresh automatically
+  </Step>
+  
+  <Step title="Manage Wallet Settings">
+    Access wallet-specific settings:
+    - Rename wallet or accounts
+    - Change wallet color theme
+    - View backup status
+    - Export private keys (with authentication)
+  </Step>
+</Steps>
+
+<Warning>
+  Always securely back up your seed phrase before receiving funds. Rainbow provides cloud backup options, but you should also maintain an offline backup in a secure location.
+</Warning>
+
+## Wallet Recovery
+
+If you lose device access:
+
+1. **With Cloud Backup**: Restore from iCloud/Google Drive
+2. **With Seed Phrase**: Import seed phrase on new device
+3. **Hardware Wallet**: Connect Ledger to new device
+4. **Watch-Only**: Re-add addresses (no funds at risk)
+
+See [Backup & Restore](/features/wallet/backup-restore) for detailed recovery procedures.
+
+## Security Features
+
+### Keychain Integrity Checks
+
+Rainbow performs automatic integrity checks to detect keychain issues:
+
+```typescript
+// Checks run automatically after wallet initialization
+const runKeychainIntegrityChecks = (): void => {
+  // Run with delay to avoid blocking startup
+  setTimeout(checkKeychainIntegrity, time.seconds(2.5));
+};
+```
+
+### Wallet Damage Detection
+
+The system detects and flags damaged wallets:
+- Missing keychain entries
+- Corrupted encryption data
+- Inaccessible private keys
+- UI warnings displayed to user
+
+<Note>
+  If a wallet is detected as damaged, Rainbow will prompt you to restore from backup or re-import using your seed phrase.
+</Note>
+
+## Platform Differences
+
+### iOS
+- Uses iOS Keychain for secure storage
+- iCloud backup integration
+- Face ID / Touch ID authentication
+
+### Android
+- Uses Android Keystore system
+- Google Drive backup integration
+- Biometric authentication
+- Additional Google account login for cloud backups
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Account Management" icon="users" href="/features/wallet/accounts">
+    Learn how to create and manage multiple accounts
+  </Card>
+  
+  <Card title="Backup & Restore" icon="cloud-arrow-up" href="/features/wallet/backup-restore">
+    Set up cloud backups and recovery options
+  </Card>
+  
+  <Card title="Hardware Wallets" icon="usb-drive" href="/features/wallet/hardware-wallets">
+    Connect and use Ledger hardware wallets
+  </Card>
+  
+  <Card title="Assets Overview" icon="coins" href="/features/assets/overview">
+    View and manage your crypto assets
+  </Card>
+</CardGroup>

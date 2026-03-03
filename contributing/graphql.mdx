@@ -1,0 +1,528 @@
+---
+title: Working with GraphQL
+description: Guide to working with GraphQL queries and clients in Rainbow Wallet
+---
+
+Rainbow uses GraphQL to query data from various APIs including The Graph subgraphs and custom metadata endpoints.
+
+## Overview
+
+GraphQL queries and clients are organized in `src/graphql/`, which is a separate yarn workspace with its own code generation setup.
+
+## Architecture
+
+The GraphQL setup consists of:
+
+- **Query definitions**: `.graphql` files in `src/graphql/queries/`
+- **Configuration**: `src/graphql/config.js` defines GraphQL endpoints
+- **Generated code**: TypeScript types and SDK functions in `src/graphql/__generated__/`
+- **Clients**: Exported client instances in `src/graphql/index.ts`
+
+## Adding a Query to an Existing Client
+
+If you're adding a query to an existing GraphQL client (like ENS or Metadata), follow these steps:
+
+<Steps>
+  <Step title="Add the query to the .graphql file">
+    Add your query or mutation to the appropriate `.graphql` file in `src/graphql/queries/`.
+    
+    **Example:** Adding a domain query to `src/graphql/queries/ens.graphql`:
+    
+    ```graphql
+    query getRegistration($id: ID!) {
+      registration(id: $id) {
+        id
+        registrationDate
+        expiryDate
+        registrant {
+          id
+        }
+      }
+    }
+    
+    # New query
+    query getDomain($id: ID!) {
+      domain(id: $id) {
+        id
+        name
+      }
+    }
+    ```
+  </Step>
+  
+  <Step title="Run the code generator">
+    Run the GraphQL codegen tool to generate TypeScript types and fetcher functions.
+    
+    **From the root of the repository:**
+    ```bash
+    yarn graphql-codegen
+    ```
+    
+    This will:
+    - Download the remote schema
+    - Parse your query definitions
+    - Generate TypeScript types
+    - Create SDK functions
+  </Step>
+  
+  <Step title="Use the generated query">
+    Import and use the client to call your new query:
+    
+    ```typescript
+    import { ensClient } from '@/graphql';
+    
+    async function fetchDomain(id: string) {
+      const result = await ensClient.getDomain({ id });
+      return result.domain;
+    }
+    ```
+    
+    The generated SDK includes:
+    - Type-safe parameters
+    - Type-safe return values
+    - Automatic request handling
+  </Step>
+</Steps>
+
+## Adding a New GraphQL Client
+
+If you need to query a GraphQL API that isn't already configured, follow these steps:
+
+<Steps>
+  <Step title="Create a .graphql file">
+    Create a new `.graphql` file in `src/graphql/queries/` with your query definitions.
+    
+    **Example:** `src/graphql/queries/example.graphql`:
+    
+    ```graphql
+    query getUsers {
+      users {
+        id
+        firstName
+        lastName
+      }
+    }
+    
+    query getUser($id: ID!) {
+      user(id: $id) {
+        id
+        firstName
+        lastName
+        email
+      }
+    }
+    ```
+  </Step>
+  
+  <Step title="Add configuration">
+    Add the GraphQL endpoint and document to `src/graphql/config.js`.
+    
+    ```javascript
+    // src/graphql/config.js
+    exports.config = {
+      ens: {
+        schema: { 
+          url: 'https://api.thegraph.com/subgraphs/name/ensdomains/ens',
+          method: 'POST'
+        },
+        document: './queries/ens.graphql',
+      },
+      metadata: {
+        schema: { 
+          url: 'https://metadata.p.rainbow.me/v1/graph',
+          method: 'GET'
+        },
+        document: './queries/metadata.graphql',
+      },
+      // Add your new client
+      example: {
+        schema: { url: 'https://example.com/graphql' },
+        document: './queries/example.graphql',
+      },
+    };
+    ```
+  </Step>
+  
+  <Step title="Run code generation">
+    Generate types and SDK for your new client:
+    
+    ```bash
+    yarn graphql-codegen
+    ```
+    
+    This creates `src/graphql/__generated__/example.ts` with:
+    - TypeScript types for your queries
+    - SDK functions for each query
+    - Request/response types
+  </Step>
+  
+  <Step title="Create and export the client">
+    Add a client instance in `src/graphql/index.ts`:
+    
+    ```typescript
+    // src/graphql/index.ts
+    import { config } from './config';
+    import { getFetchRequester } from './utils/getFetchRequester';
+    import { getSdk as getEnsSdk } from './__generated__/ens';
+    import { getSdk as getMetadataSdk } from './__generated__/metadata';
+    import { getSdk as getExampleSdk } from './__generated__/example';
+    
+    export const ensClient = getEnsSdk(
+      getFetchRequester(config.ens.schema.url)
+    );
+    
+    export const metadataClient = getMetadataSdk(
+      getFetchRequester(config.metadata.schema.url)
+    );
+    
+    export const exampleClient = getExampleSdk(
+      getFetchRequester(config.example.schema.url)
+    );
+    ```
+  </Step>
+  
+  <Step title="Use the new client">
+    Import and use your new GraphQL client:
+    
+    ```typescript
+    import { exampleClient } from '@/graphql';
+    
+    async function fetchUsers() {
+      const result = await exampleClient.getUsers();
+      return result.users;
+    }
+    
+    async function fetchUser(id: string) {
+      const result = await exampleClient.getUser({ id });
+      return result.user;
+    }
+    ```
+  </Step>
+</Steps>
+
+## Configuration Options
+
+The `config.js` file supports various schema options:
+
+```javascript
+module.exports = {
+  clientName: {
+    schema: {
+      url: 'https://api.example.com/graphql',  // GraphQL endpoint
+      method: 'POST',                           // HTTP method (optional)
+      headers: {                                 // Custom headers (optional)
+        'Authorization': 'Bearer token',
+      },
+    },
+    document: './queries/client.graphql',       // Path to .graphql file
+  },
+};
+```
+
+## Working with GraphQL Queries
+
+### Query Structure
+
+GraphQL queries should follow these conventions:
+
+```graphql
+# Use descriptive query names
+query getTokenMetadata($address: String!, $chainId: Int!) {
+  token(address: $address, chainId: $chainId) {
+    # Request only the fields you need
+    address
+    symbol
+    name
+    decimals
+    
+    # Use fragments for complex types
+    ...TokenPriceFields
+  }
+}
+
+# Define reusable fragments
+fragment TokenPriceFields on Token {
+  price {
+    value
+    currency
+    change24h
+  }
+}
+```
+
+### Query Variables
+
+All query parameters are type-safe:
+
+```typescript
+// TypeScript knows the exact parameter types
+const result = await metadataClient.getTokenMetadata({
+  address: '0x...',  // string
+  chainId: 1,        // number
+});
+
+// TypeScript error: missing required parameter
+const invalid = await metadataClient.getTokenMetadata({
+  address: '0x...',
+  // Error: chainId is required
+});
+```
+
+### Query Results
+
+Results are fully typed:
+
+```typescript
+const result = await ensClient.getDomain({ id: 'vitalik.eth' });
+
+// TypeScript knows the exact structure
+if (result.domain) {
+  console.log(result.domain.id);    // string
+  console.log(result.domain.name);  // string
+}
+```
+
+## Using GraphQL in Stores
+
+Integrate GraphQL queries with Rainbow's state management:
+
+### With createQueryStore
+
+```typescript
+import { createQueryStore } from '@/state/internal/createQueryStore';
+import { ensClient } from '@/graphql';
+
+const useDomainStore = createQueryStore({
+  queryKey: ({ domainId }) => ['domain', domainId],
+  queryFn: async ({ domainId }) => {
+    const result = await ensClient.getDomain({ id: domainId });
+    return result.domain;
+  },
+});
+
+// Usage in component
+function DomainInfo({ domainId }: { domainId: string }) {
+  const { data, loading, error } = useDomainStore({ domainId });
+  
+  if (loading) return <Loading />;
+  if (error) return <Error error={error} />;
+  
+  return <Text>{data?.name}</Text>;
+}
+```
+
+### With React Query (Legacy)
+
+```typescript
+import { useQuery } from '@tanstack/react-query';
+import { ensClient } from '@/graphql';
+
+function useDomain(domainId: string) {
+  return useQuery({
+    queryKey: ['domain', domainId],
+    queryFn: async () => {
+      const result = await ensClient.getDomain({ id: domainId });
+      return result.domain;
+    },
+  });
+}
+```
+
+## Error Handling
+
+Handle GraphQL errors gracefully:
+
+```typescript
+import { ensClient } from '@/graphql';
+import { logger } from '@/logger';
+
+async function fetchDomainSafely(domainId: string) {
+  try {
+    const result = await ensClient.getDomain({ id: domainId });
+    
+    if (!result.domain) {
+      logger.warn('Domain not found', { domainId });
+      return null;
+    }
+    
+    return result.domain;
+  } catch (error) {
+    logger.error('Failed to fetch domain', {
+      domainId,
+      error,
+    });
+    throw error;
+  }
+}
+```
+
+## Testing GraphQL Queries
+
+Mock GraphQL clients in tests:
+
+```typescript
+import { ensClient } from '@/graphql';
+
+jest.mock('@/graphql', () => ({
+  ensClient: {
+    getDomain: jest.fn(),
+  },
+}));
+
+describe('useDomain', () => {
+  it('fetches domain data', async () => {
+    const mockDomain = {
+      id: 'vitalik.eth',
+      name: 'vitalik.eth',
+    };
+    
+    (ensClient.getDomain as jest.Mock).mockResolvedValue({
+      domain: mockDomain,
+    });
+    
+    const result = await ensClient.getDomain({ id: 'vitalik.eth' });
+    
+    expect(result.domain).toEqual(mockDomain);
+    expect(ensClient.getDomain).toHaveBeenCalledWith({
+      id: 'vitalik.eth',
+    });
+  });
+});
+```
+
+## Code Generation Commands
+
+### Install GraphQL workspace dependencies
+
+```bash
+yarn graphql-codegen:install
+```
+
+### Generate TypeScript types and SDK
+
+```bash
+yarn graphql-codegen
+```
+
+This runs:
+1. `yarn graphql-prepare` - Prepares environment variables
+2. `cd src/graphql && yarn codegen` - Runs code generation
+
+### Full setup
+
+```bash
+yarn setup
+```
+
+This runs:
+- `yarn graphql-codegen:install`
+- `yarn ds:install`
+- `yarn graphql-codegen`
+- `yarn fetch:networks`
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Request Only What You Need" icon="filter">
+    Only request the fields you'll use to minimize response size and improve performance.
+  </Card>
+  
+  <Card title="Use Fragments" icon="puzzle-piece">
+    Define reusable fragments for complex types to avoid duplication.
+  </Card>
+  
+  <Card title="Type-Safe Parameters" icon="shield-check">
+    Always use TypeScript types for query parameters and results.
+  </Card>
+  
+  <Card title="Error Handling" icon="triangle-exclamation">
+    Always handle errors gracefully and log failures for debugging.
+  </Card>
+</CardGroup>
+
+### Query Optimization
+
+**Good:**
+```graphql
+query getToken($address: String!) {
+  token(address: $address) {
+    # Only request what you need
+    address
+    symbol
+    decimals
+  }
+}
+```
+
+**Bad:**
+```graphql
+query getToken($address: String!) {
+  token(address: $address) {
+    # Requesting everything is wasteful
+    address
+    symbol
+    name
+    decimals
+    totalSupply
+    holders
+    transactions
+    # ... many more unused fields
+  }
+}
+```
+
+### Naming Conventions
+
+- **Query names**: Use descriptive names starting with `get` (e.g., `getToken`, `getDomain`)
+- **Variables**: Use camelCase (e.g., `$tokenAddress`, `$chainId`)
+- **Fragments**: Use descriptive names ending with `Fields` (e.g., `TokenPriceFields`)
+
+## Troubleshooting
+
+### Code generation fails
+
+```bash
+# Clean and reinstall GraphQL workspace
+cd src/graphql
+rm -rf node_modules
+yarn install
+cd ../..
+yarn graphql-codegen
+```
+
+### Types not updating
+
+Ensure you're running code generation after changing queries:
+
+```bash
+yarn graphql-codegen
+```
+
+### Client import errors
+
+Ensure the client is exported in `src/graphql/index.ts` and the path alias is correct:
+
+```typescript
+// ✅ Correct import
+import { ensClient } from '@/graphql';
+
+// ❌ Wrong import
+import { ensClient } from '@/graphql/index';
+```
+
+## Additional Resources
+
+<CardGroup cols={2}>
+  <Card title="GraphQL Documentation" icon="book" href="https://graphql.org/learn/">
+    Official GraphQL documentation
+  </Card>
+  <Card title="The Graph" icon="diagram-project" href="https://thegraph.com/docs/">
+    The Graph protocol documentation
+  </Card>
+  <Card title="Code Conventions" icon="code" href="/contributing/code-conventions">
+    Rainbow coding standards
+  </Card>
+  <Card title="Testing Guidelines" icon="vial" href="/contributing/testing">
+    Testing best practices
+  </Card>
+</CardGroup>

@@ -1,0 +1,521 @@
+---
+title: Testing Guidelines
+description: Testing standards and best practices for Rainbow Wallet
+---
+
+Rainbow uses Jest for unit and integration testing. All code changes should include appropriate tests.
+
+## Test Configuration
+
+Rainbow's Jest configuration is defined in `jest.config.js`:
+
+```javascript
+module.exports = {
+  preset: 'react-native',
+  setupFiles: ['./config/test/jest-setup.js'],
+  testMatch: ['**/*.(spec|test).[tj]s?(x)'],
+  testPathIgnorePatterns: ['node_modules', 'e2e', '\\.disabled\\.[jt]sx?$'],
+  transformIgnorePatterns: [
+    'node_modules/(?!((jest-)?react-native|@react-native(-community)?|...)/)'
+  ],
+  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
+};
+```
+
+## Running Tests
+
+### Run All Tests
+
+```bash
+yarn test
+```
+
+This runs all tests with Jest's default configuration.
+
+### Run Specific Test
+
+```bash
+yarn jest path/to/test
+```
+
+**Example:**
+```bash
+yarn jest src/utils/__tests__/search.test.ts
+```
+
+### Run Tests in Watch Mode
+
+```bash
+yarn test --watch
+```
+
+### Run Tests with Coverage
+
+```bash
+yarn test --coverage
+```
+
+## Test Organization
+
+Tests are located in `__tests__` directories adjacent to the code they test:
+
+```
+src/
+  utils/
+    search.ts
+    __tests__/
+      search.test.ts
+  features/
+    positions/
+      stores/
+        positionsStore.ts
+      __tests__/
+        stores/
+          positionsStore.test.ts
+```
+
+## Writing Tests
+
+### Basic Test Structure
+
+```typescript
+import { functionToTest } from '../module';
+
+describe('functionToTest', () => {
+  it('should handle basic case', () => {
+    const result = functionToTest('input');
+    expect(result).toBe('expected');
+  });
+
+  it('should handle edge case', () => {
+    const result = functionToTest('');
+    expect(result).toBe('');
+  });
+});
+```
+
+### Testing Utility Functions
+
+Example from `src/utils/__tests__/search.test.ts`:
+
+```typescript
+import { filterList } from '../search';
+
+it('filterListSimpleArray', () => {
+  const list = ['a dog', 'black cat'];
+  const searchPhrase = 'cat';
+  const result = filterList(list, searchPhrase);
+  expect(result.length).toBe(1);
+});
+
+it('filterListWithParameter', () => {
+  const list = [
+    { name: 'Ethereum', symbol: 'ETH' },
+    { name: '0x Protocol Token', symbol: 'ZRX' },
+  ];
+  const searchPhrase = 'eth';
+  const result = filterList(list, searchPhrase, ['name']);
+  expect(result.length).toBe(1);
+});
+```
+
+### Testing React Components
+
+```typescript
+import { render, screen } from '@testing-library/react-native';
+import { WalletCard } from '../WalletCard';
+
+describe('WalletCard', () => {
+  it('renders address and balance', () => {
+    render(
+      <WalletCard 
+        address="0x1234...5678" 
+        balance="10.5 ETH" 
+      />
+    );
+
+    expect(screen.getByText('0x1234...5678')).toBeTruthy();
+    expect(screen.getByText('10.5 ETH')).toBeTruthy();
+  });
+});
+```
+
+### Testing Custom Hooks
+
+```typescript
+import { renderHook, waitFor } from '@testing-library/react-native';
+import { useTokenBalance } from '../useTokenBalance';
+
+describe('useTokenBalance', () => {
+  it('fetches and returns balance', async () => {
+    const { result } = renderHook(() => 
+      useTokenBalance('0xTokenAddress')
+    );
+
+    expect(result.current.loading).toBe(true);
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.balance).toBeTruthy();
+  });
+});
+```
+
+### Testing Zustand Stores
+
+Example from `src/state/internal/queryStore/tests/queryStore.test.ts`:
+
+```typescript
+import { createQueryStore } from '../createQueryStore';
+import { renderHook, waitFor } from '@testing-library/react-native';
+
+describe('createQueryStore', () => {
+  it('fetches data on mount', async () => {
+    const mockFetch = jest.fn().mockResolvedValue({ data: 'test' });
+    
+    const useStore = createQueryStore({
+      queryKey: () => ['test'],
+      queryFn: mockFetch,
+    });
+
+    const { result } = renderHook(() => useStore());
+
+    await waitFor(() => {
+      expect(result.current.data).toEqual({ data: 'test' });
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('refetches when reactive params change', async () => {
+    const mockFetch = jest.fn().mockResolvedValue({ data: 'test' });
+    let tokenId = 'token1';
+    
+    const useStore = createQueryStore({
+      queryKey: ({ $tokenId }) => ['token', $tokenId],
+      queryFn: mockFetch,
+    });
+
+    const { result, rerender } = renderHook(() => useStore({ $tokenId: tokenId }));
+
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+
+    tokenId = 'token2';
+    rerender();
+
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+  });
+});
+```
+
+## Test Coverage Guidelines
+
+### What to Test
+
+<Steps>
+  <Step title="Utility Functions">
+    All utility functions should have comprehensive unit tests covering:
+    - Happy path (expected inputs)
+    - Edge cases (empty strings, nulls, undefined)
+    - Error conditions
+  </Step>
+  
+  <Step title="Business Logic">
+    Core business logic should be thoroughly tested:
+    - Token calculations
+    - Price conversions
+    - Transaction parsing
+    - Wallet operations
+  </Step>
+  
+  <Step title="State Management">
+    Store creators and state updates:
+    - Initial state
+    - State mutations
+    - Derived state
+    - Persistence
+  </Step>
+  
+  <Step title="Components (Critical Paths)">
+    Focus on critical user-facing components:
+    - Form validation
+    - Error states
+    - Loading states
+    - User interactions
+  </Step>
+</Steps>
+
+### What Not to Test
+
+- Simple presentational components without logic
+- Third-party library internals
+- Configuration files
+- Type definitions alone
+
+## Mocking
+
+### Mocking Modules
+
+```typescript
+jest.mock('@/services/api', () => ({
+  fetchTokenPrice: jest.fn().mockResolvedValue(100),
+}));
+
+import { fetchTokenPrice } from '@/services/api';
+
+test('uses mocked API', async () => {
+  const price = await fetchTokenPrice('0xToken');
+  expect(price).toBe(100);
+  expect(fetchTokenPrice).toHaveBeenCalledWith('0xToken');
+});
+```
+
+### Mocking React Native Modules
+
+```typescript
+jest.mock('react-native', () => {
+  const RN = jest.requireActual('react-native');
+  return {
+    ...RN,
+    Platform: {
+      ...RN.Platform,
+      OS: 'ios',
+      Version: 14,
+    },
+  };
+});
+```
+
+### Mocking MMKV Storage
+
+```typescript
+const mockStorage = new Map();
+
+jest.mock('react-native-mmkv', () => ({
+  MMKV: jest.fn().mockImplementation(() => ({
+    getString: (key: string) => mockStorage.get(key),
+    set: (key: string, value: string) => mockStorage.set(key, value),
+    delete: (key: string) => mockStorage.delete(key),
+  })),
+}));
+```
+
+## Testing Async Code
+
+### Using async/await
+
+```typescript
+it('fetches data asynchronously', async () => {
+  const data = await fetchData();
+  expect(data).toBeDefined();
+});
+```
+
+### Using waitFor
+
+```typescript
+import { waitFor } from '@testing-library/react-native';
+
+it('waits for condition', async () => {
+  const { result } = renderHook(() => useAsyncData());
+  
+  await waitFor(
+    () => expect(result.current.loaded).toBe(true),
+    { timeout: 3000 }
+  );
+});
+```
+
+### Using Promises
+
+```typescript
+it('handles promise rejection', () => {
+  return expect(failingFunction()).rejects.toThrow('Error message');
+});
+```
+
+## Best Practices
+
+### Use Descriptive Test Names
+
+**Good:**
+```typescript
+it('returns empty array when search phrase is empty', () => { ... });
+it('filters case-insensitively', () => { ... });
+it('throws error when address is invalid', () => { ... });
+```
+
+**Bad:**
+```typescript
+it('works', () => { ... });
+it('test 1', () => { ... });
+it('should work correctly', () => { ... });
+```
+
+### Arrange-Act-Assert Pattern
+
+```typescript
+it('calculates total balance correctly', () => {
+  // Arrange
+  const tokens = [
+    { symbol: 'ETH', balance: 10, price: 2000 },
+    { symbol: 'USDC', balance: 1000, price: 1 },
+  ];
+
+  // Act
+  const total = calculateTotalBalance(tokens);
+
+  // Assert
+  expect(total).toBe(21000);
+});
+```
+
+### Test One Thing Per Test
+
+**Good:**
+```typescript
+it('converts wei to ether correctly', () => {
+  expect(weiToEther('1000000000000000000')).toBe('1');
+});
+
+it('handles zero wei', () => {
+  expect(weiToEther('0')).toBe('0');
+});
+```
+
+**Bad:**
+```typescript
+it('converts wei and handles errors', () => {
+  expect(weiToEther('1000000000000000000')).toBe('1');
+  expect(weiToEther('0')).toBe('0');
+  expect(() => weiToEther('invalid')).toThrow();
+});
+```
+
+### Clean Up After Tests
+
+```typescript
+let mockServer;
+
+beforeEach(() => {
+  mockServer = createMockServer();
+});
+
+afterEach(() => {
+  mockServer.close();
+  jest.clearAllMocks();
+});
+```
+
+### Avoid Testing Implementation Details
+
+Test behavior, not implementation:
+
+**Good:**
+```typescript
+it('displays formatted balance', () => {
+  render(<WalletCard balance="1234567890" />);
+  expect(screen.getByText('1,234.57 ETH')).toBeTruthy();
+});
+```
+
+**Bad:**
+```typescript
+it('calls formatBalance function', () => {
+  const formatBalanceSpy = jest.spyOn(utils, 'formatBalance');
+  render(<WalletCard balance="1234567890" />);
+  expect(formatBalanceSpy).toHaveBeenCalled();
+});
+```
+
+## Verification Checklist
+
+Before submitting a PR with tests:
+
+<Steps>
+  <Step title="All tests pass">
+    ```bash
+    yarn test
+    ```
+  </Step>
+  
+  <Step title="No skipped tests">
+    Ensure no tests are marked with `.skip` or `xit`
+  </Step>
+  
+  <Step title="Coverage for new code">
+    Add tests for all new functionality
+  </Step>
+  
+  <Step title="Edge cases covered">
+    Test error conditions and edge cases
+  </Step>
+  
+  <Step title="No console warnings">
+    Tests should run without warnings
+  </Step>
+</Steps>
+
+## Common Issues
+
+### Tests Timeout
+
+Increase timeout for slow async operations:
+
+```typescript
+it('handles slow operation', async () => {
+  // ... test code
+}, 10000); // 10 second timeout
+```
+
+### Tests Are Flaky
+
+Ensure proper cleanup and avoid race conditions:
+
+```typescript
+let cancelled = false;
+
+afterEach(() => {
+  cancelled = true;
+});
+
+it('fetches data', async () => {
+  const data = await fetchData();
+  if (!cancelled) {
+    expect(data).toBeDefined();
+  }
+});
+```
+
+### Mock Not Working
+
+Ensure mocks are defined before imports:
+
+```typescript
+// ✅ Mock before import
+jest.mock('@/api');
+import { fetchData } from '@/api';
+
+// ❌ Mock after import won't work
+import { fetchData } from '@/api';
+jest.mock('@/api');
+```
+
+## Additional Resources
+
+<CardGroup cols={2}>
+  <Card title="Jest Documentation" icon="book" href="https://jestjs.io/docs/getting-started">
+    Official Jest testing framework docs
+  </Card>
+  <Card title="React Native Testing Library" icon="mobile" href="https://callstack.github.io/react-native-testing-library/">
+    Testing utilities for React Native
+  </Card>
+  <Card title="Testing Best Practices" icon="check-double" href="https://kentcdodds.com/blog/common-mistakes-with-react-testing-library">
+    Common testing mistakes to avoid
+  </Card>
+  <Card title="Code Conventions" icon="code" href="/contributing/code-conventions">
+    Review coding standards
+  </Card>
+</CardGroup>

@@ -1,0 +1,592 @@
+---
+title: List Components
+description: Components for rendering lists, rows, and collections of items
+---
+
+Rainbow provides flexible list components for rendering collections of items with consistent spacing and layout.
+
+## Rows Component
+
+Renders children in equal-height rows with consistent spacing. Part of the design system.
+
+### Props
+
+<ParamField path="space" type="Space">
+  Space between rows using design system tokens (e.g., "12px", "20px")
+</ParamField>
+
+<ParamField path="alignHorizontal" type="'left' | 'center' | 'right'">
+  Horizontal alignment within rows
+</ParamField>
+
+<ParamField path="alignVertical" type="'top' | 'center' | 'bottom'">
+  Vertical alignment of rows
+</ParamField>
+
+<ParamField path="children" type="ReactNode" required>
+  Row elements or other content
+</ParamField>
+
+### Usage
+
+```typescript
+import { Rows, Row, Text } from '@/design-system';
+
+function MyList() {
+  return (
+    <Rows space="12px">
+      <Row height="content">
+        <Text size="26pt" weight="bold" color="label">
+          Header
+        </Text>
+      </Row>
+      <Row>
+        <Text size="15pt" weight="regular" color="label">
+          Main content area that fills available space
+        </Text>
+      </Row>
+      <Row height="content">
+        <Text size="13pt" weight="medium" color="labelSecondary">
+          Footer
+        </Text>
+      </Row>
+    </Rows>
+  );
+}
+```
+
+### Row Component
+
+Provides manual control of row heights within Rows.
+
+<ParamField path="height" type="Height | 'content'">
+  Height of the row. Use "content" to shrink to fit content, or fractional values like "1/3"
+</ParamField>
+
+<ParamField path="children" type="ReactNode" required>
+  Row content
+</ParamField>
+
+### Equal Height Rows
+
+```typescript
+import { Rows, Text, Box } from '@/design-system';
+
+// All rows share available space equally
+function EqualHeightList() {
+  return (
+    <Rows space="8px">
+      <Box background="surfacePrimary" padding="16px">
+        <Text size="15pt" weight="semibold" color="label">Row 1</Text>
+      </Box>
+      <Box background="surfacePrimary" padding="16px">
+        <Text size="15pt" weight="semibold" color="label">Row 2</Text>
+      </Box>
+      <Box background="surfacePrimary" padding="16px">
+        <Text size="15pt" weight="semibold" color="label">Row 3</Text>
+      </Box>
+    </Rows>
+  );
+}
+```
+
+### Mixed Height Rows
+
+```typescript
+import { Rows, Row, Text, Box } from '@/design-system';
+
+function MixedHeightList() {
+  return (
+    <Rows space="12px">
+      <Row height="content">
+        <Box background="surfacePrimary" padding="20px">
+          <Text size="20pt" weight="bold" color="label">
+            Fixed Height Header
+          </Text>
+        </Box>
+      </Row>
+      
+      <Row height="1/3">
+        <Box background="surfaceSecondary" padding="16px">
+          <Text size="15pt" weight="regular" color="label">
+            Takes 1/3 of remaining space
+          </Text>
+        </Box>
+      </Row>
+      
+      <Row>
+        <Box background="surfaceSecondary" padding="16px">
+          <Text size="15pt" weight="regular" color="label">
+            Takes remaining space
+          </Text>
+        </Box>
+      </Row>
+      
+      <Row height="content">
+        <Box background="surfacePrimary" padding="12px">
+          <Text size="13pt" weight="medium" color="labelSecondary">
+            Fixed Height Footer
+          </Text>
+        </Box>
+      </Row>
+    </Rows>
+  );
+}
+```
+
+## FlatList Integration
+
+For performant scrollable lists, use React Native's FlatList with design system components:
+
+### Basic FlatList
+
+```typescript
+import { FlatList } from 'react-native';
+import { Box, Text, Inline } from '@/design-system';
+import ButtonPressAnimation from '@/components/animations/ButtonPressAnimation';
+
+interface Item {
+  id: string;
+  title: string;
+  subtitle: string;
+}
+
+function ItemList({ items }: { items: Item[] }) {
+  const renderItem = ({ item }: { item: Item }) => (
+    <ButtonPressAnimation onPress={() => handleItemPress(item)}>
+      <Box 
+        background="surfacePrimary" 
+        padding="16px" 
+        marginBottom="8px"
+        borderRadius={12}
+      >
+        <Stack space="4px">
+          <Text size="17pt" weight="semibold" color="label">
+            {item.title}
+          </Text>
+          <Text size="13pt" weight="regular" color="labelSecondary">
+            {item.subtitle}
+          </Text>
+        </Stack>
+      </Box>
+    </ButtonPressAnimation>
+  );
+
+  return (
+    <FlatList
+      data={items}
+      renderItem={renderItem}
+      keyExtractor={(item) => item.id}
+      contentContainerStyle={{ padding: 20 }}
+    />
+  );
+}
+```
+
+### Optimized List with Separators
+
+```typescript
+import { FlatList } from 'react-native';
+import { Box, Text, Separator } from '@/design-system';
+import { useMemo } from 'react';
+
+function OptimizedList({ items }: { items: Item[] }) {
+  const renderItem = ({ item }: { item: Item }) => (
+    <Box padding="16px">
+      <Text size="15pt" weight="semibold" color="label">
+        {item.title}
+      </Text>
+    </Box>
+  );
+
+  const ItemSeparator = useMemo(
+    () => () => <Separator />,
+    []
+  );
+
+  return (
+    <FlatList
+      data={items}
+      renderItem={renderItem}
+      keyExtractor={(item) => item.id}
+      ItemSeparatorComponent={ItemSeparator}
+      removeClippedSubviews
+      maxToRenderPerBatch={10}
+      windowSize={10}
+    />
+  );
+}
+```
+
+### List with Empty State
+
+```typescript
+import { FlatList } from 'react-native';
+import { Box, Stack, Text } from '@/design-system';
+import { NoResults } from '@/components/list/NoResults';
+
+function ListWithEmpty({ items }: { items: Item[] }) {
+  const renderItem = ({ item }: { item: Item }) => (
+    <ItemComponent item={item} />
+  );
+
+  const ListEmptyComponent = () => (
+    <Box padding="40px" alignItems="center">
+      <Stack space="12px" alignHorizontal="center">
+        <Text size="20pt" weight="bold" color="labelTertiary" align="center">
+          No Items
+        </Text>
+        <Text size="15pt" weight="regular" color="labelSecondary" align="center">
+          There are no items to display
+        </Text>
+      </Stack>
+    </Box>
+  );
+
+  return (
+    <FlatList
+      data={items}
+      renderItem={renderItem}
+      keyExtractor={(item) => item.id}
+      ListEmptyComponent={ListEmptyComponent}
+    />
+  );
+}
+```
+
+### List with Header and Footer
+
+```typescript
+import { FlatList } from 'react-native';
+import { Box, Text } from '@/design-system';
+
+function ListWithHeaderFooter({ items }: { items: Item[] }) {
+  const ListHeader = () => (
+    <Box padding="20px">
+      <Text size="26pt" weight="bold" color="label">
+        My Items
+      </Text>
+    </Box>
+  );
+
+  const ListFooter = () => (
+    <Box padding="20px" alignItems="center">
+      <Text size="13pt" weight="medium" color="labelTertiary">
+        {items.length} items
+      </Text>
+    </Box>
+  );
+
+  return (
+    <FlatList
+      data={items}
+      renderItem={renderItem}
+      keyExtractor={(item) => item.id}
+      ListHeaderComponent={ListHeader}
+      ListFooterComponent={ListFooter}
+    />
+  );
+}
+```
+
+## SectionList
+
+For grouped/sectioned lists:
+
+```typescript
+import { SectionList } from 'react-native';
+import { Box, Stack, Text } from '@/design-system';
+
+interface Section {
+  title: string;
+  data: Item[];
+}
+
+function GroupedList({ sections }: { sections: Section[] }) {
+  const renderItem = ({ item }: { item: Item }) => (
+    <Box padding="16px" background="surfacePrimary">
+      <Text size="15pt" weight="regular" color="label">
+        {item.title}
+      </Text>
+    </Box>
+  );
+
+  const renderSectionHeader = ({ section }: { section: Section }) => (
+    <Box 
+      padding="12px" 
+      paddingHorizontal="16px" 
+      background="surfaceSecondary"
+    >
+      <Text size="13pt" weight="semibold" color="labelSecondary" uppercase>
+        {section.title}
+      </Text>
+    </Box>
+  );
+
+  return (
+    <SectionList
+      sections={sections}
+      renderItem={renderItem}
+      renderSectionHeader={renderSectionHeader}
+      keyExtractor={(item, index) => item.id + index}
+      stickySectionHeadersEnabled
+    />
+  );
+}
+```
+
+## List Item Patterns
+
+### Basic List Item
+
+```typescript
+import ButtonPressAnimation from '@/components/animations/ButtonPressAnimation';
+import { Box, Inline, Text } from '@/design-system';
+
+function ListItem({ title, onPress }: { title: string; onPress: () => void }) {
+  return (
+    <ButtonPressAnimation onPress={onPress}>
+      <Box 
+        background="surfacePrimary" 
+        padding="16px" 
+        borderRadius={12}
+      >
+        <Inline space="12px" alignVertical="center">
+          <Text size="17pt" weight="semibold" color="label">
+            {title}
+          </Text>
+        </Inline>
+      </Box>
+    </ButtonPressAnimation>
+  );
+}
+```
+
+### List Item with Icon
+
+```typescript
+import ButtonPressAnimation from '@/components/animations/ButtonPressAnimation';
+import { Box, Inline, Text } from '@/design-system';
+import Icon from '@/components/icons/Icon';
+
+function IconListItem({ 
+  icon, 
+  title, 
+  subtitle, 
+  onPress 
+}: { 
+  icon: string; 
+  title: string; 
+  subtitle?: string; 
+  onPress: () => void;
+}) {
+  return (
+    <ButtonPressAnimation onPress={onPress}>
+      <Box background="surfacePrimary" padding="16px" borderRadius={12}>
+        <Inline space="12px" alignVertical="center">
+          <Box 
+            background="surfaceSecondary" 
+            width={40} 
+            height={40} 
+            borderRadius={20}
+            alignItems="center"
+            justifyContent="center"
+          >
+            <Icon name={icon} size={24} />
+          </Box>
+          <Stack space="4px">
+            <Text size="17pt" weight="semibold" color="label">
+              {title}
+            </Text>
+            {subtitle && (
+              <Text size="13pt" weight="regular" color="labelSecondary">
+                {subtitle}
+              </Text>
+            )}
+          </Stack>
+        </Inline>
+      </Box>
+    </ButtonPressAnimation>
+  );
+}
+```
+
+### List Item with Chevron
+
+```typescript
+import ButtonPressAnimation from '@/components/animations/ButtonPressAnimation';
+import { Box, Inline, Text, Columns, Column } from '@/design-system';
+import Icon from '@/components/icons/Icon';
+
+function ChevronListItem({ 
+  title, 
+  value, 
+  onPress 
+}: { 
+  title: string; 
+  value?: string; 
+  onPress: () => void;
+}) {
+  return (
+    <ButtonPressAnimation onPress={onPress}>
+      <Box background="surfacePrimary" padding="16px" borderRadius={12}>
+        <Columns space="12px" alignVertical="center">
+          <Column>
+            <Text size="17pt" weight="semibold" color="label">
+              {title}
+            </Text>
+          </Column>
+          <Column width="content">
+            <Inline space="8px" alignVertical="center">
+              {value && (
+                <Text size="15pt" weight="regular" color="labelSecondary">
+                  {value}
+                </Text>
+              )}
+              <Icon name="chevron-right" size={20} color="labelTertiary" />
+            </Inline>
+          </Column>
+        </Columns>
+      </Box>
+    </ButtonPressAnimation>
+  );
+}
+```
+
+### Swipeable List Item
+
+```typescript
+import { SwipeableListItem } from '@/components/list/SwipeableListItem';
+import { Box, Text } from '@/design-system';
+
+function SwipeableItem({ item, onDelete }: { item: Item; onDelete: () => void }) {
+  const renderRightActions = () => (
+    <Box 
+      background="red" 
+      padding="16px" 
+      justifyContent="center"
+      borderRadius={12}
+    >
+      <Text size="15pt" weight="semibold" color="label">
+        Delete
+      </Text>
+    </Box>
+  );
+
+  return (
+    <SwipeableListItem
+      onSwipeableRightOpen={onDelete}
+      renderRightActions={renderRightActions}
+    >
+      <Box background="surfacePrimary" padding="16px" borderRadius={12}>
+        <Text size="17pt" weight="semibold" color="label">
+          {item.title}
+        </Text>
+      </Box>
+    </SwipeableListItem>
+  );
+}
+```
+
+## Performance Optimization
+
+### Memoize List Items
+
+```typescript
+import { memo } from 'react';
+import { Box, Text } from '@/design-system';
+
+const ListItem = memo(({ item }: { item: Item }) => {
+  return (
+    <Box padding="16px" background="surfacePrimary">
+      <Text size="15pt" weight="semibold" color="label">
+        {item.title}
+      </Text>
+    </Box>
+  );
+});
+```
+
+### Extract Key Extractor
+
+```typescript
+const keyExtractor = (item: Item) => item.id;
+
+<FlatList
+  data={items}
+  renderItem={renderItem}
+  keyExtractor={keyExtractor}
+/>
+```
+
+### Use getItemLayout for Fixed Heights
+
+```typescript
+const ITEM_HEIGHT = 60;
+
+const getItemLayout = (data: any, index: number) => ({
+  length: ITEM_HEIGHT,
+  offset: ITEM_HEIGHT * index,
+  index,
+});
+
+<FlatList
+  data={items}
+  renderItem={renderItem}
+  keyExtractor={keyExtractor}
+  getItemLayout={getItemLayout}
+/>
+```
+
+## Best Practices
+
+### 1. Use FlatList for Long Lists
+
+Always use FlatList for lists with many items:
+
+```typescript
+// ✅ Good - uses FlatList for performance
+<FlatList data={items} renderItem={renderItem} />
+
+// ❌ Avoid - renders all items at once
+{items.map(item => <Item key={item.id} {...item} />)}
+```
+
+### 2. Memoize Expensive Components
+
+```typescript
+// ✅ Good - memoized
+const ExpensiveItem = memo(({ item }) => {
+  return <ComplexComponent item={item} />;
+});
+
+// ❌ Avoid - re-renders unnecessarily
+const ExpensiveItem = ({ item }) => {
+  return <ComplexComponent item={item} />;
+};
+```
+
+### 3. Provide Stable Key Extractors
+
+```typescript
+// ✅ Good - stable unique key
+keyExtractor={(item) => item.id}
+
+// ❌ Avoid - unstable key based on index
+keyExtractor={(item, index) => index.toString()}
+```
+
+### 4. Use Content Container Style for Padding
+
+```typescript
+// ✅ Good - padding on container
+<FlatList
+  data={items}
+  contentContainerStyle={{ padding: 20 }}
+/>
+
+// ❌ Avoid - wrapper View adds extra nesting
+<View style={{ padding: 20 }}>
+  <FlatList data={items} />
+</View>
+```

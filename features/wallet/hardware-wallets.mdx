@@ -1,0 +1,519 @@
+---
+title: Hardware Wallet Support
+description: Ledger hardware wallet integration in Rainbow
+---
+
+Rainbow supports Ledger hardware wallets for maximum security, allowing you to manage crypto assets while keeping private keys on a dedicated hardware device.
+
+## Supported Devices
+
+Rainbow currently supports:
+
+- **Ledger Nano S**
+- **Ledger Nano S Plus**
+- **Ledger Nano X**
+
+<Note>
+  Other hardware wallet brands (Trezor, etc.) are not currently supported. Ledger integration uses Bluetooth (Nano X) or USB connection (Nano S/S Plus).
+</Note>
+
+## How It Works
+
+Hardware wallet integration keeps your keys secure:
+
+1. **Private keys never leave the device**: All signing happens on Ledger
+2. **Transaction verification**: Review and approve each transaction on device screen
+3. **Multiple accounts**: Support for multiple derivation paths
+4. **Bluetooth/USB**: Wireless or wired connection options
+
+## LedgerSigner Implementation
+
+Rainbow implements a custom signer for Ledger devices:
+
+```typescript
+// From src/handlers/LedgerSigner.ts
+export class LedgerSigner extends Signer {
+  readonly path: string | undefined;        // Derivation path
+  readonly privateKey: null | undefined;    // Always null (on device)
+  readonly deviceId: string | undefined;    // Ledger device ID
+  readonly isLedger: boolean | undefined;   // Flag for Ledger wallet
+  
+  readonly _eth: Promise<AppEth> | undefined; // Ethereum app connection
+  
+  constructor(provider: Provider, path: string, deviceId: string) {
+    super();
+    
+    defineReadOnly(this, 'isLedger', true);
+    defineReadOnly(this, 'privateKey', null);
+    defineReadOnly(this, 'path', path);
+    defineReadOnly(this, 'deviceId', deviceId);
+    defineReadOnly(this, 'provider', provider || null);
+    
+    // Connect to Ledger Ethereum app
+    defineReadOnly(
+      this,
+      '_eth',
+      getEthApp(deviceId).then(
+        ethApp => ethApp,
+        error => Promise.reject(error)
+      )
+    );
+  }
+}
+```
+
+## Connecting a Ledger Device
+
+<Steps>
+  <Step title="Prepare Ledger">
+    Before connecting to Rainbow:
+    - Ensure Ledger firmware is up to date
+    - Install Ethereum app on Ledger
+    - Enable "Blind Signing" in Ethereum app settings (for smart contracts)
+    - Unlock device with PIN
+  </Step>
+  
+  <Step title="Open Ethereum App">
+    On your Ledger device:
+    - Navigate to Ethereum app
+    - Open the app
+    - Device should show "Application is ready"
+  </Step>
+  
+  <Step title="Connect in Rainbow">
+    In Rainbow app:
+    - Go to Settings > Add Wallet
+    - Select "Connect Hardware Wallet"
+    - Choose "Ledger"
+    - For Nano X: Enable Bluetooth and pair
+    - For Nano S/S Plus: Connect via USB
+  </Step>
+  
+  <Step title="Select Accounts">
+    Rainbow will:
+    - Scan for accounts on device
+    - Display accounts with balances
+    - Allow selection of accounts to add
+    - Add selected accounts to Rainbow
+  </Step>
+</Steps>
+
+## Signing Transactions
+
+When sending transactions with a Ledger wallet:
+
+### Sign Transaction Flow
+
+```typescript
+async signTransaction(transaction: TransactionRequest): Promise<string> {
+  // Resolve transaction properties
+  const tx = await resolveProperties(transaction);
+  const baseTx: UnsignedTransaction = {
+    chainId: tx.chainId || undefined,
+    data: tx.data || undefined,
+    gasLimit: tx.gasLimit || undefined,
+    gasPrice: tx.gasPrice || undefined,
+    nonce: tx.nonce ? Number(tx.nonce) : undefined,
+    to: tx.to || undefined,
+    value: tx.value || undefined,
+  };
+  
+  // Serialize for Ledger
+  const unsignedTx = serialize(baseTx).substring(2);
+  
+  // Sign on device with retry logic
+  const signature = await this._retry(async (eth) => {
+    return await eth.signTransaction(this.path, unsignedTx);
+  });
+  
+  // Convert signature components to hex
+  const r = sigComponentToHex(signature.r);
+  const s = sigComponentToHex(signature.s);
+  const v = signature.v;
+  
+  // Combine signature with transaction
+  return serialize(baseTx, { r, s, v });
+}
+```
+
+<Steps>
+  <Step title="User Initiates Transaction">
+    User triggers send/swap/contract interaction in Rainbow
+  </Step>
+  
+  <Step title="Transaction Prepared">
+    Rainbow builds transaction:
+    - Destination address
+    - Amount and token
+    - Gas price and limit
+    - Transaction data
+  </Step>
+  
+  <Step title="Sent to Ledger">
+    Transaction sent to Ledger device via Bluetooth/USB:
+    ```typescript
+    await eth.signTransaction(derivationPath, serializedTx);
+    ```
+  </Step>
+  
+  <Step title="Review on Device">
+    User reviews on Ledger screen:
+    - Transaction details
+    - Amount and recipient
+    - Gas fees
+    - Contract data (if applicable)
+  </Step>
+  
+  <Step title="Approve or Reject">
+    User decides:
+    - **Approve**: Press right button to sign
+    - **Reject**: Press left button to cancel
+  </Step>
+  
+  <Step title="Signature Returned">
+    If approved:
+    - Ledger returns signature
+    - Rainbow broadcasts transaction
+    - Transaction appears in activity
+  </Step>
+</Steps>
+
+## Signing Messages
+
+For message signing (e.g., wallet verification, dApp connections):
+
+```typescript
+async signMessage(message: Bytes | string): Promise<string> {
+  // Convert message to UTF-8 bytes
+  const messageBytes = typeof message === 'string' 
+    ? toUtf8Bytes(message) 
+    : message;
+  
+  // Sign on Ledger
+  const signature = await this._retry(async (eth) => {
+    const sig = await eth.signPersonalMessage(
+      this.path,
+      hexlify(messageBytes).substring(2)
+    );
+    
+    // Adjust v value for Ethereum
+    sig.v -= 27;
+    return sig;
+  });
+  
+  // Convert to hex signature
+  const r = sigComponentToHex(signature.r);
+  const s = sigComponentToHex(signature.s);
+  
+  return joinSignature({ r, s, v: signature.v });
+}
+```
+
+## Typed Data Signing (EIP-712)
+
+For structured data signing (used by many dApps):
+
+```typescript
+async _signTypedData(
+  domain: any,
+  types: any,
+  value: any
+): Promise<string> {
+  // Encode typed data
+  const domainSeparatorHex = TypedDataUtils.hashStruct(
+    'EIP712Domain',
+    domain,
+    types,
+    SignTypedDataVersion.V4
+  ).toString('hex');
+  
+  const messageHashHex = TypedDataUtils.hashStruct(
+    types.primaryType,
+    value,
+    types,
+    SignTypedDataVersion.V4
+  ).toString('hex');
+  
+  // Sign on Ledger
+  const signature = await this._retry(async (eth) => {
+    const sig = await ledgerService.signEIP712HashedMessage(
+      this.path,
+      domainSeparatorHex,
+      messageHashHex
+    );
+    return sig;
+  });
+  
+  const r = sigComponentToHex(signature.r);
+  const s = sigComponentToHex(signature.s);
+  const v = signature.v;
+  
+  return joinSignature({ r, s, v });
+}
+```
+
+## Error Handling & Retry Logic
+
+Ledger connections can be unreliable. Rainbow implements retry logic:
+
+```typescript
+_retry<T = any>(
+  callback: (eth: AppEth) => Promise<T>,
+  timeout?: number
+): Promise<T> {
+  return new Promise(async (resolve, reject) => {
+    // Set timeout if specified
+    if (timeout && timeout > 0) {
+      setTimeout(() => {
+        reject(new RainbowError('Ledger: Signer timeout'));
+      }, timeout);
+    }
+    
+    const eth = await this._eth;
+    if (!eth) {
+      return reject(new Error('Ledger: Eth app not open'));
+    }
+    
+    // Try up to 50 times with 100ms intervals (5 seconds total)
+    for (let i = 0; i < 50; i++) {
+      try {
+        const result = await callback(eth);
+        return resolve(result);
+      } catch (error: any) {
+        // Check for specific errors
+        if (error.message?.includes('blind signing')) {
+          return reject(
+            new Error('Enable blind signing in Ledger Ethereum app')
+          );
+        }
+        
+        if (error.message?.includes('rejected')) {
+          return reject(new Error('Transaction rejected by user'));
+        }
+        
+        // Wait before retry
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
+    
+    reject(new Error('Ledger: Maximum retries exceeded'));
+  });
+}
+```
+
+## Common Errors
+
+<AccordionGroup>
+  <Accordion title="Ethereum App Not Open">
+    **Error**: "Ledger: Eth app not open"
+    
+    **Solution**:
+    - Unlock your Ledger device
+    - Open the Ethereum app
+    - Ensure it shows "Application is ready"
+    - Try connecting again in Rainbow
+  </Accordion>
+  
+  <Accordion title="Blind Signing Not Enabled">
+    **Error**: "Enable blind signing in Ledger Ethereum app"
+    
+    **Solution**:
+    - Open Ethereum app on Ledger
+    - Go to Settings
+    - Enable "Blind Signing"
+    - This is required for smart contract interactions
+  </Accordion>
+  
+  <Accordion title="Transaction Rejected">
+    **Error**: "Transaction rejected by user"
+    
+    **Solution**:
+    - This is normal if you rejected on device
+    - Review transaction details carefully
+    - Approve on Ledger if transaction is correct
+    - Cancel in Rainbow if you don't want to proceed
+  </Accordion>
+  
+  <Accordion title="Connection Timeout">
+    **Error**: "Ledger: Signer timeout"
+    
+    **Solution**:
+    - Check Bluetooth/USB connection
+    - Move closer to device (Bluetooth)
+    - Try different USB port/cable
+    - Restart Ledger and Rainbow
+    - Re-pair Bluetooth connection
+  </Accordion>
+  
+  <Accordion title="Transport Error">
+    **Error**: Various transport/communication errors
+    
+    **Solution**:
+    - Disconnect and reconnect Ledger
+    - Close and reopen Ethereum app on Ledger
+    - Restart Rainbow app
+    - Update Ledger firmware if available
+    - Update Ethereum app on Ledger
+  </Accordion>
+</AccordionGroup>
+
+## Security Considerations
+
+### What's Secure
+
+<Check>
+  **Private keys never exposed**: Keys never leave the Ledger device
+</Check>
+
+<Check>
+  **Transaction verification**: Every transaction shown on device screen
+</Check>
+
+<Check>
+  **Physical confirmation**: Requires button press on device
+</Check>
+
+<Check>
+  **Malware resistant**: Even if phone is compromised, keys are safe
+</Check>
+
+### Best Practices
+
+<Steps>
+  <Step title="Verify on Device">
+    Always verify transaction details on Ledger screen:
+    - Recipient address
+    - Amount being sent
+    - Token/asset type
+    - Gas fees
+    - Never trust Rainbow display alone
+  </Step>
+  
+  <Step title="Enable Blind Signing Carefully">
+    Blind signing is required for:
+    - Token swaps
+    - DeFi interactions
+    - NFT purchases
+    - Any smart contract calls
+    
+    But be aware:
+    - You can't see full transaction details
+    - Only use with trusted dApps
+    - Understand what you're approving
+  </Step>
+  
+  <Step title="Keep Firmware Updated">
+    Regular updates provide:
+    - Security patches
+    - New features
+    - Bug fixes
+    - Better compatibility
+  </Step>
+  
+  <Step title="Secure Your Recovery Phrase">
+    Your Ledger recovery phrase:
+    - 24 words from device setup
+    - Can restore Ledger accounts
+    - Store securely offline
+    - Never enter into any app
+  </Step>
+</Steps>
+
+<Warning>
+  Never enter your Ledger recovery phrase into Rainbow or any software wallet. If Rainbow asks for it, you're being phished. Ledger recovery phrases should only be used with Ledger devices.
+</Warning>
+
+## Derivation Paths
+
+Rainbow supports standard Ethereum derivation paths:
+
+- **Default**: `m/44'/60'/0'/0/0`
+- **Account 1**: `m/44'/60'/0'/0/1`
+- **Account 2**: `m/44'/60'/0'/0/2`
+- And so on...
+
+Each path generates a different address from the same seed.
+
+## Limitations
+
+<Warning>
+  Current limitations of Ledger integration:
+</Warning>
+
+- **No backup to cloud**: Hardware wallet accounts cannot be cloud backed up (keys are on device)
+- **Device required**: Must have Ledger connected to sign transactions
+- **Bluetooth range**: Nano X limited to Bluetooth range
+- **USB connection**: Nano S/S Plus requires USB adapter on mobile
+- **Blind signing**: Limited visibility for complex smart contract interactions
+
+## Platform Support
+
+### iOS
+- Bluetooth support for Ledger Nano X
+- USB support requires Lightning to USB adapter
+- Works with iOS 13+
+
+### Android
+- Bluetooth support for Ledger Nano X
+- USB OTG support for Nano S/S Plus
+- Works with Android 8+
+
+## Troubleshooting
+
+### Ledger Not Detected
+
+<Steps>
+  <Step title="Check Basics">
+    - Ledger is unlocked
+    - Ethereum app is open
+    - Bluetooth enabled (Nano X)
+    - USB connected properly (Nano S/S Plus)
+  </Step>
+  
+  <Step title="Reset Connection">
+    - Close Ethereum app on Ledger
+    - Disconnect Bluetooth/USB
+    - Restart Rainbow app
+    - Reconnect and open Ethereum app
+  </Step>
+  
+  <Step title="Update Everything">
+    - Update Ledger firmware
+    - Update Ethereum app on Ledger
+    - Update Rainbow to latest version
+  </Step>
+  
+  <Step title="Try Different Method">
+    - If Bluetooth fails, try USB
+    - If USB fails, try Bluetooth
+    - Test on different device if possible
+  </Step>
+</Steps>
+
+### Transaction Won't Sign
+
+1. **Check Ledger screen**: May be waiting for approval
+2. **Verify blind signing**: Enable if doing smart contract interaction
+3. **Check gas settings**: May be too low or too high
+4. **Try again**: Sometimes requires retry
+5. **Contact support**: If persistent issues
+
+## Related Features
+
+<CardGroup cols={2}>
+  <Card title="Wallet Overview" icon="wallet" href="/features/wallet/overview">
+    Understanding different wallet types
+  </Card>
+  
+  <Card title="Account Management" icon="users" href="/features/wallet/accounts">
+    Managing accounts and addresses
+  </Card>
+  
+  <Card title="Backup & Restore" icon="cloud-arrow-up" href="/features/wallet/backup-restore">
+    Backup options for software wallets
+  </Card>
+  
+  <Card title="Swaps Overview" icon="arrow-right-arrow-left" href="/features/swaps/overview">
+    Using Ledger for token swaps
+  </Card>
+</CardGroup>

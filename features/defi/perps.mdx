@@ -1,0 +1,486 @@
+---
+title: 'Perpetuals Trading'
+description: 'Trade perpetual futures on Hyperliquid with leverage'
+---
+
+Rainbow Wallet integrates with Hyperliquid to provide perpetual futures trading directly from your wallet, supporting 50+ markets with up to 50x leverage.
+
+## Overview
+
+Hyperliquid is a decentralized perpetuals exchange on Arbitrum offering:
+
+- **50+ perpetual markets**: BTC, ETH, SOL, and altcoins
+- **Up to 50x leverage**: Amplify positions with isolated margin
+- **On-chain order book**: Fully decentralized trading
+- **No gas fees**: Gasless trading on Hyperliquid L1
+- **Trigger orders**: Automated take profit and stop loss
+
+## Account Setup
+
+Before trading, deposit USDC to your Hyperliquid account:
+
+<Steps>
+  <Step title="Navigate to Perps Account">
+    Open the Perpetuals section in Rainbow.
+  </Step>
+  
+  <Step title="Deposit USDC">
+    Bridge USDC from Arbitrum to your Hyperliquid account.
+    
+    ```typescript src/features/perps/depositConfig.ts
+    export const depositConfig = {
+      sourceChain: ChainId.arbitrum,
+      token: 'USDC',
+      destination: 'Hyperliquid',
+    };
+    ```
+  </Step>
+  
+  <Step title="Wait for Confirmation">
+    Deposits are confirmed within a few minutes.
+  </Step>
+</Steps>
+
+## Account State
+
+Your Hyperliquid account is tracked in real-time:
+
+```typescript src/features/perps/stores/hyperliquidAccountStore.ts
+type FetchHyperliquidAccountResponse = {
+  positions: Record<string, PerpsPosition>;
+  balance: string;    // Available USDC
+  value: string;      // Total account value
+};
+
+export const useHyperliquidAccountStore = createQueryStore<
+  FetchHyperliquidAccountResponse,
+  HyperliquidAccountParams,
+  HyperliquidAccountActions
+>({
+  fetcher: fetchHyperliquidAccount,
+  params: { address: $ => $(useHyperliquidClients).address },
+  staleTime: time.seconds(10),  // Refresh every 10 seconds
+});
+```
+
+Account data:
+- **Balance**: Available USDC for trading
+- **Value**: Total account value (balance + unrealized P&L)
+- **Positions**: Open perpetual positions
+
+## Opening a Position
+
+The trading workflow for opening a perpetual position:
+
+<Steps>
+  <Step title="Select Market">
+    Browse and select a perpetual market.
+    
+    ```typescript src/features/perps/screens/PerpsSearchScreen.tsx
+    <PerpMarketsList
+      markets={markets}
+      onSelectMarket={navigateToNewPosition}
+    />
+    ```
+    
+    Markets display:
+    - Current price
+    - 24h change
+    - Funding rate
+    - Open interest
+  </Step>
+  
+  <Step title="Choose Position Side">
+    Select long (buy) or short (sell).
+    
+    ```typescript src/features/perps/screens/perps-new-position-screen/PositionSideSelector.tsx
+    <PositionSideSelector />
+    ```
+  </Step>
+  
+  <Step title="Set Position Size">
+    Enter the margin amount in USDC.
+    
+    ```typescript src/features/perps/screens/perps-new-position-screen/PerpsNewPositionScreen.tsx
+    <AmountInputCard
+      availableBalance={availableBalance}
+      accentColor={accentColors.opacity100}
+      backgroundColor={accentColors.opacity8}
+      onAmountChange={hlNewPositionStoreActions.setAmount}
+    />
+    ```
+  </Step>
+  
+  <Step title="Adjust Leverage">
+    Set leverage from 1x to the market's maximum (typically 50x).
+    
+    ```typescript src/features/perps/screens/perps-new-position-screen/LeverageInputCard.tsx
+    <LeverageInputCard
+      initialLeverage={initialLeverage}
+      leverage={leverage}
+    />
+    ```
+    
+    Shows:
+    - Leverage slider
+    - Position size calculation
+    - Liquidation price
+  </Step>
+  
+  <Step title="Add Trigger Orders (Optional)">
+    Set take profit and/or stop loss orders.
+    
+    ```typescript src/features/perps/screens/perps-new-position-screen/TriggerOrdersSection.tsx
+    <TriggerOrdersSection />
+    ```
+  </Step>
+  
+  <Step title="Review and Execute">
+    Review position details and submit the order.
+    
+    ```typescript src/features/perps/stores/hyperliquidAccountStore.ts
+    await createIsolatedMarginPosition({
+      symbol: market.symbol,
+      side: 'long',
+      leverage: 10,
+      marginAmount: '100',
+      price: currentPrice,
+      triggerOrders,
+    });
+    ```
+  </Step>
+</Steps>
+
+## Position Details
+
+```typescript src/features/perps/types.ts
+type PerpsPosition = {
+  symbol: string;
+  side: PerpPositionSide;  // 'long' | 'short'
+  size: string;            // Position size in asset
+  entryPrice: string;      // Average entry price
+  liquidationPrice: string; // Liquidation price
+  unrealizedPnl: string;   // Current P&L
+  margin: string;          // Margin allocated
+  leverage: number;        // Current leverage
+  timestamp: number;       // Open timestamp
+};
+```
+
+### Position Metrics
+
+- **Entry Price**: Average price of all fills
+- **Current Price**: Latest market price
+- **Unrealized P&L**: Current profit/loss
+- **Margin**: USDC allocated to position
+- **Leverage**: Position size / margin
+- **Liquidation Price**: Price at which position is liquidated
+
+### Liquidation Calculation
+
+```typescript src/features/perps/utils/calculateLiquidationPrice.ts
+export function calculateLiquidationPrice({
+  entryPrice,
+  leverage,
+  side,
+}: {
+  entryPrice: string;
+  leverage: number;
+  side: PerpPositionSide;
+}): string {
+  const maintenanceMarginRate = 0.03; // 3%
+  const liquidationBuffer = 1 - maintenanceMarginRate;
+  
+  if (side === 'long') {
+    return mulWorklet(
+      entryPrice,
+      divWorklet('1', addWorklet(leverage.toString(), '1'))
+    );
+  } else {
+    return mulWorklet(
+      entryPrice,
+      subWorklet('2', divWorklet('1', leverage.toString()))
+    );
+  }
+}
+```
+
+<Warning>
+Positions are automatically liquidated if the mark price reaches the liquidation price. Use appropriate leverage and risk management.
+</Warning>
+
+## Trigger Orders
+
+Automate position exits with trigger orders:
+
+### Take Profit
+
+```typescript src/features/perps/types.ts
+type TriggerOrder = {
+  type: 'take_profit' | 'stop_loss';
+  price: string;           // Trigger price
+  orderFraction: string;   // Fraction of position (0-1)
+};
+```
+
+Example:
+```typescript
+const takeProfitOrder: TriggerOrder = {
+  type: 'take_profit',
+  price: '45000',        // Close when BTC hits $45k
+  orderFraction: '1.0',  // Close 100% of position
+};
+```
+
+### Stop Loss
+
+Limit downside risk:
+
+```typescript
+const stopLossOrder: TriggerOrder = {
+  type: 'stop_loss',
+  price: '38000',        // Close when BTC drops to $38k  
+  orderFraction: '1.0',  // Close entire position
+};
+```
+
+### Creating Trigger Orders
+
+```typescript src/features/perps/stores/hyperliquidAccountStore.ts
+await createTriggerOrder({
+  symbol: 'BTC',
+  triggerOrder: {
+    type: 'take_profit',
+    price: '45000',
+    orderFraction: '0.5',  // Close 50%
+  },
+});
+```
+
+<Info>
+Trigger orders can close a partial position by setting `orderFraction` to less than 1.0.
+</Info>
+
+## Managing Positions
+
+### View Open Positions
+
+```typescript src/features/perps/screens/perps-account-screen/OpenPositionsSection.tsx
+<OpenPositionsSection />
+```
+
+Shows:
+- Market and side
+- Position size
+- Entry price
+- Current P&L
+- Liquidation price
+- Active trigger orders
+
+### Close Position
+
+```typescript src/features/perps/stores/hyperliquidAccountStore.ts
+await closePosition({
+  symbol: 'BTC',
+  price: currentPrice,
+  size: position.size,  // Full position size
+});
+```
+
+<Steps>
+  <Step title="Navigate to Position">
+    Open the position details from your account screen.
+  </Step>
+  
+  <Step title="Choose Close Method">
+    - Market close: Immediate at current price
+    - Limit close: Set a limit price
+    - Partial close: Close a fraction of the position
+  </Step>
+  
+  <Step title="Confirm Close">
+    Review final P&L and submit the close order.
+  </Step>
+</Steps>
+
+### Cancel Orders
+
+Cancel pending trigger orders:
+
+```typescript src/features/perps/stores/hyperliquidAccountStore.ts
+await cancelOrder({
+  symbol: 'BTC',
+  orderId: order.id,
+});
+```
+
+## Trading Fees
+
+Hyperliquid uses a maker/taker fee model:
+
+```typescript src/features/perps/utils/calculateTradingFee.ts
+export function calculateTradingFee({
+  positionSize,
+  isMaker,
+}: {
+  positionSize: string;
+  isMaker: boolean;
+}): string {
+  const feeRate = isMaker ? '0.0002' : '0.0005'; // 0.02% / 0.05%
+  return mulWorklet(positionSize, feeRate);
+}
+```
+
+Fee structure:
+- **Maker**: 0.02% (adds liquidity)
+- **Taker**: 0.05% (removes liquidity)
+
+## Funding Rates
+
+Perpetual funding rates are paid/received every 8 hours:
+
+- **Positive funding**: Longs pay shorts
+- **Negative funding**: Shorts pay longs
+- **Rate**: Typically -0.01% to +0.01% per 8 hours
+
+Funding is automatically settled from your margin.
+
+## Leverage Limits
+
+Maximum leverage varies by market:
+
+```typescript src/features/perps/utils/getApplicableMaxLeverage.ts
+export function getApplicableMaxLeverage(market: PerpMarket): number {
+  // Major assets: 50x
+  if (['BTC', 'ETH'].includes(market.symbol)) {
+    return 50;
+  }
+  // Mid-caps: 20x
+  if (market.liquidity > 1000000) {
+    return 20;
+  }
+  // Low liquidity: 10x
+  return 10;
+}
+```
+
+<Warning>
+Higher leverage amplifies both gains and losses. A 10x position can be liquidated with a 10% adverse price move.
+</Warning>
+
+## Market Information
+
+```typescript src/features/perps/screens/perps-new-position-screen/MarketInfoSection.tsx
+<MarketInfoSection market={market} />
+```
+
+Displays:
+- **Index Price**: Underlying asset price
+- **Mark Price**: Fair value for liquidations
+- **Funding Rate**: Current 8h rate
+- **Open Interest**: Total open positions
+- **24h Volume**: Trading volume
+- **24h Price Change**: Percentage change
+
+## Order Book
+
+Hyperliquid maintains an on-chain order book:
+
+```typescript src/features/perps/stores/hlOpenOrdersStore.ts
+export const hlOpenOrdersStore = createQueryStore({
+  fetcher: async ({ symbol }) => {
+    const client = getHyperliquidInfoClient();
+    return await client.getOpenOrders({ symbol });
+  },
+  staleTime: time.seconds(5),
+});
+```
+
+Order book features:
+- Limit orders with price priority
+- Time priority within price levels
+- No MEV or front-running
+- Transparent matching
+
+## Withdrawal
+
+Withdraw USDC back to Arbitrum:
+
+```typescript src/features/perps/stores/hyperliquidAccountStore.ts
+export async function withdraw(amount: string): Promise<void> {
+  await getHyperliquidExchangeClient().withdraw(amount);
+}
+```
+
+<Steps>
+  <Step title="Close Positions">
+    Close all open positions first (or leave margin for them).
+  </Step>
+  
+  <Step title="Initiate Withdrawal">
+    Enter withdrawal amount and confirm.
+  </Step>
+  
+  <Step title="Receive on Arbitrum">
+    USDC arrives in your wallet on Arbitrum within minutes.
+  </Step>
+</Steps>
+
+<Info>
+You can only withdraw available balance. Margin allocated to open positions cannot be withdrawn.
+</Info>
+
+## Trading Analytics
+
+Track your trading performance:
+
+```typescript src/features/perps/hooks/usePerpsFeatureCard.ts
+// Tracked metrics:
+- Total trades
+- Win rate
+- Total P&L
+- Average leverage used
+- Most traded markets
+```
+
+## Risk Management Tips
+
+1. **Start Small**: Use lower leverage (2-5x) when learning
+2. **Set Stop Losses**: Always use stop loss orders
+3. **Size Appropriately**: Don't allocate too much margin to one position
+4. **Monitor Liquidation**: Keep liquidation price far from current price
+5. **Watch Funding**: High funding rates can erode profits
+
+## Technical Implementation
+
+### Hyperliquid Clients
+
+```typescript src/features/perps/services/index.ts
+export function getHyperliquidAccountClient() {
+  return new HyperliquidAccountClient({
+    address: getCurrentAddress(),
+    privateKey: getPrivateKey(),
+  });
+}
+
+export function getHyperliquidExchangeClient() {
+  return new HyperliquidExchangeClient({
+    address: getCurrentAddress(),
+    signer: getSigner(),
+  });
+}
+```
+
+### Real-Time Updates
+
+Positions update via polling:
+
+```typescript src/features/perps/stores/hyperliquidAccountStore.ts
+staleTime: time.seconds(10),  // Refetch every 10 seconds
+```
+
+Market data uses WebSocket connections for:
+- Price updates
+- Order book changes  
+- Trade notifications
+- Funding rate updates

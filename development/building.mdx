@@ -1,0 +1,509 @@
+---
+title: Building for Production
+description: Create production builds of Rainbow Wallet for iOS and Android
+---
+
+This guide covers creating production builds for distribution on the App Store and Google Play Store.
+
+## Prerequisites
+
+Before creating production builds:
+
+- ✅ Complete [setup](/setup/prerequisites) and successfully [run the app](/development/running)
+- ✅ Have necessary signing credentials (certificates, provisioning profiles, keystores)
+- ✅ Verify `.env` is properly configured
+
+<Warning>
+  Production builds require proper code signing. For internal developers, signing is configured via `rainbow-scripts` and `rainbow-env`. External contributors need to set up their own signing credentials.
+</Warning>
+
+## Building for iOS
+
+### Build Configurations
+
+Rainbow iOS has multiple build configurations:
+
+- **Debug** - Development builds with debugging enabled
+- **Release** - Production builds with optimizations
+
+### Build from Xcode
+
+<Steps>
+  <Step title="Open workspace">
+    ```bash
+    open ios/Rainbow.xcworkspace
+    ```
+  </Step>
+  
+  <Step title="Select scheme and device">
+    1. Select **Rainbow** scheme
+    2. Select **Any iOS Device (arm64)** or a connected device
+  </Step>
+  
+  <Step title="Select build configuration">
+    1. **Product → Scheme → Edit Scheme**
+    2. Select **Run** in left sidebar
+    3. Change **Build Configuration** to **Release**
+  </Step>
+  
+  <Step title="Build">
+    **Product → Build** (Cmd+B) or **Product → Archive** for distribution.
+  </Step>
+</Steps>
+
+### Archive for App Store
+
+Create an archive for App Store submission:
+
+<Steps>
+  <Step title="Set scheme to Release">
+    Ensure you're using Release configuration (see above).
+  </Step>
+  
+  <Step title="Archive">
+    **Product → Archive** (or Cmd+Shift+B might work depending on shortcuts).
+    
+    This builds the app and creates an archive in Xcode's Organizer.
+  </Step>
+  
+  <Step title="Validate and distribute">
+    When build completes:
+    1. Xcode Organizer opens automatically
+    2. Select the archive
+    3. Click **Distribute App**
+    4. Follow prompts to validate and upload to App Store Connect
+  </Step>
+</Steps>
+
+### Build with Fastlane
+
+Rainbow uses Fastlane for automated builds:
+
+```bash
+cd ios
+bundle exec fastlane <lane_name>
+```
+
+<Info>
+  Fastlane lanes are defined in `ios/fastlane/Fastfile`. Check the file for available lanes. Common lanes might include `beta`, `release`, `staging`, etc.
+</Info>
+
+To see available lanes:
+
+```bash
+cd ios
+bundle exec fastlane lanes
+```
+
+## Building for Android
+
+### Build Debug APK
+
+Create a debug APK for testing:
+
+```bash
+cd android
+./gradlew assembleDebug
+```
+
+APK location: `android/app/build/outputs/apk/debug/app-debug.apk`
+
+### Build Release APK
+
+Create an optimized release APK:
+
+<CodeGroup>
+
+```bash Gradle Command
+cd android
+./gradlew assembleRelease
+```
+
+```bash Yarn Script
+yarn android:apk
+```
+
+</CodeGroup>
+
+This:
+1. Checks environment with `./scripts/check-env.sh`
+2. Builds release APK
+3. Uninstalls existing app
+4. Installs the new APK
+
+APK location: `android/app/build/outputs/apk/release/app-release.apk`
+
+### Build Release Bundle (AAB)
+
+Create an Android App Bundle for Google Play Store:
+
+<CodeGroup>
+
+```bash Gradle Command
+cd android
+./gradlew bundleRelease
+```
+
+```bash Yarn Script
+yarn android:bundle
+```
+
+</CodeGroup>
+
+AAB location: `android/app/build/outputs/bundle/release/app-release.aab`
+
+<Note>
+  Google Play requires AAB format (not APK) for new app submissions. AAB allows Google Play to generate optimized APKs for each device configuration.
+</Note>
+
+### Install Release APK
+
+Install the release APK on a connected device:
+
+```bash
+# Single device
+yarn android:load-apk
+
+# All connected devices
+yarn android-all:load-apk
+
+# Or manually
+adb install android/app/build/outputs/apk/release/app-release.apk
+```
+
+### Build with Fastlane
+
+Android also uses Fastlane for automated builds:
+
+```bash
+cd android
+bundle exec fastlane <lane_name>
+```
+
+To see available lanes:
+
+```bash
+cd android
+bundle exec fastlane lanes
+```
+
+## Code Signing
+
+### iOS Code Signing
+
+For iOS, you need:
+
+1. **Apple Developer Account** (individual or organization)
+2. **Signing Certificate** (Developer or Distribution)
+3. **Provisioning Profile** (Development or App Store)
+
+#### For Internal Developers
+
+Signing is configured automatically via `rainbow-scripts` and certificates from `rainbow-env`.
+
+#### For External Contributors
+
+Configure signing in Xcode:
+
+1. Open `ios/Rainbow.xcworkspace`
+2. Select **Rainbow** target
+3. Go to **Signing & Capabilities**
+4. Select your **Team**
+5. Xcode manages provisioning profiles automatically (or use manual signing)
+
+### Android Code Signing
+
+For Android, you need a **keystore** file.
+
+#### For Internal Developers
+
+Keystore is configured via `rainbow-scripts` and `rainbow-env`.
+
+#### For External Contributors
+
+Create a keystore:
+
+```bash
+keytool -genkey -v -keystore rainbow-release.keystore \
+  -alias rainbow -keyalg RSA -keysize 2048 -validity 10000
+```
+
+Configure in `android/gradle.properties`:
+
+```properties
+RAINBOW_RELEASE_STORE_FILE=rainbow-release.keystore
+RAINBOW_RELEASE_KEY_ALIAS=rainbow
+RAINBOW_RELEASE_STORE_PASSWORD=your_password
+RAINBOW_RELEASE_KEY_PASSWORD=your_password
+```
+
+And update `android/app/build.gradle` signing config to use these properties.
+
+<Warning>
+  Never commit keystores or passwords to version control. Keep them secure and backed up.
+</Warning>
+
+## Environment Configuration
+
+### Production Environment
+
+Ensure your `.env` has production values:
+
+```bash
+IS_TESTING=false
+ENABLE_DEV_MODE=0
+
+# Production API endpoints
+DATA_ENDPOINT=https://api.rainbow.me
+DATA_ORIGIN=https://rainbow.me
+
+# Production RPC endpoints
+ETHEREUM_MAINNET_RPC=https://mainnet.infura.io/v3/YOUR_KEY
+POLYGON_MAINNET_RPC=https://polygon-mainnet.infura.io/v3/YOUR_KEY
+ARBITRUM_MAINNET_RPC=https://arbitrum-mainnet.infura.io/v3/YOUR_KEY
+OPTIMISM_MAINNET_RPC=https://optimism-mainnet.infura.io/v3/YOUR_KEY
+```
+
+<Warning>
+  After changing `.env`, you must rebuild the app. Native code reads environment variables at build time, not runtime.
+</Warning>
+
+### Check Environment
+
+Before building, verify environment:
+
+```bash
+./scripts/check-env.sh
+```
+
+This validates required environment variables are set.
+
+## Build Optimizations
+
+### Android ProGuard/R8
+
+Release builds use R8 for code shrinking and obfuscation:
+
+```gradle
+buildTypes {
+    release {
+        minifyEnabled true
+        proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
+    }
+}
+```
+
+ProGuard rules are in `android/app/proguard-rules.pro`.
+
+### iOS Optimization
+
+Release builds automatically:
+- Strip debug symbols
+- Enable optimizations
+- Reduce bundle size
+- Enable bitcode (if configured)
+
+## Versioning
+
+Update version numbers before building:
+
+### iOS Version
+
+Update in Xcode:
+1. Select **Rainbow** target
+2. General tab → **Version** (e.g., `2.0.20`)
+3. General tab → **Build** (e.g., `1`)
+
+Or edit `ios/Rainbow/Info.plist`:
+
+```xml
+<key>CFBundleShortVersionString</key>
+<string>2.0.20</string>
+<key>CFBundleVersion</key>
+<string>1</string>
+```
+
+### Android Version
+
+Edit `android/app/build.gradle`:
+
+```gradle
+defaultConfig {
+    versionCode 2020001
+    versionName "2.0.20"
+}
+```
+
+- **versionCode**: Integer that must increase with each release (e.g., 2020001)
+- **versionName**: User-facing version string (e.g., "2.0.20")
+
+### package.json Version
+
+Also update `package.json`:
+
+```json
+{
+  "version": "2.0.20-1"
+}
+```
+
+## Build Verification
+
+### Verify Release Build
+
+Before distributing, verify the release build:
+
+<Steps>
+  <Step title="Install release build">
+    Install on a real device (not simulator/emulator).
+  </Step>
+  
+  <Step title="Test critical paths">
+    - App launches without crashes
+    - Wallet creation/import works
+    - Transactions work
+    - No console errors
+  </Step>
+  
+  <Step title="Check bundle size">
+    Ensure bundle size is reasonable:
+    
+    **iOS**: Check in Xcode Organizer after archiving
+    
+    **Android**: 
+    ```bash
+    ls -lh android/app/build/outputs/apk/release/app-release.apk
+    ls -lh android/app/build/outputs/bundle/release/app-release.aab
+    ```
+  </Step>
+  
+  <Step title="Test performance">
+    Release builds should be noticeably faster than debug builds.
+  </Step>
+</Steps>
+
+### Automated Testing
+
+Run tests before building:
+
+```bash
+# Type checking
+yarn lint:ts
+
+# Linting
+yarn lint:js
+
+# Unit tests
+yarn test
+
+# All checks
+yarn lint
+```
+
+## Distribution
+
+### iOS Distribution
+
+1. **Archive** the app in Xcode
+2. **Validate** the archive
+3. **Upload to App Store Connect**
+4. Fill in app metadata
+5. Submit for review
+
+### Android Distribution
+
+1. **Build AAB**: `yarn android:bundle`
+2. Go to [Google Play Console](https://play.google.com/console)
+3. Create a new release
+4. Upload the AAB file
+5. Fill in release notes
+6. Submit for review
+
+### Internal Distribution
+
+#### TestFlight (iOS)
+
+1. Upload build to App Store Connect
+2. Go to TestFlight section
+3. Add internal/external testers
+4. Build is automatically available to testers
+
+#### Firebase App Distribution (iOS & Android)
+
+Distribute to testers via Firebase:
+
+```bash
+# Install Firebase CLI
+npm install -g firebase-tools
+
+# Login
+firebase login
+
+# Distribute iOS
+firebase appdistribution:distribute path/to/app.ipa \
+  --app IOS_APP_ID --groups "testers"
+
+# Distribute Android
+firebase appdistribution:distribute android/app/build/outputs/apk/release/app-release.apk \
+  --app ANDROID_APP_ID --groups "testers"
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="iOS archive fails with signing error">
+    Ensure you have:
+    - Valid signing certificate in Keychain
+    - Matching provisioning profile
+    - Correct bundle identifier
+    
+    Check in Xcode: **Signing & Capabilities** tab.
+  </Accordion>
+  
+  <Accordion title="Android build fails with 'Execution failed for task :app:lintVitalRelease'">
+    Lint errors are blocking the build. Fix lint errors or disable:
+    
+    ```gradle
+    lintOptions {
+        checkReleaseBuilds false
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Release build crashes but debug works">
+    Common causes:
+    - ProGuard removing necessary code (Android) - update proguard-rules.pro
+    - Missing environment variables - verify .env
+    - Code optimization issues - check for dynamic code that might break when minified
+  </Accordion>
+  
+  <Accordion title="AAB/APK size is too large">
+    Reduce size:
+    - Enable ProGuard/R8 (should be default for release)
+    - Remove unused resources
+    - Use vector graphics instead of PNGs
+    - Enable split APKs per ABI:
+    
+    ```gradle
+    splits {
+        abi {
+            enable true
+            reset()
+            include "armeabi-v7a", "arm64-v8a", "x86", "x86_64"
+            universalApk false
+        }
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Debugging" icon="bug" href="/development/debugging">
+    Debug production issues and run E2E tests
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/features">
+    Understand Rainbow's architecture and codebase
+  </Card>
+</CardGroup>

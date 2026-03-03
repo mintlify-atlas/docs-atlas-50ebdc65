@@ -1,0 +1,481 @@
+---
+title: Assets Overview
+description: View, manage, and organize your crypto assets in Rainbow Wallet
+---
+
+Rainbow provides comprehensive asset management across multiple blockchains, with real-time pricing, filtering, and organization features.
+
+## Asset Architecture
+
+Rainbow uses a sophisticated asset store with query-based data fetching:
+
+```typescript
+// From src/state/assets/types.ts
+interface UserAssetsState {
+  address: Address | string;
+  userAssets: Map<UniqueId, ParsedSearchAsset>;
+  chainBalances: Map<ChainId, number>;
+  filter: UserAssetFilter;
+  hiddenAssets: Set<UniqueId>;
+  searchCache: Map<string, UniqueId[]>;
+  
+  getUserAssets: () => ParsedSearchAsset[];
+  getUserAsset: (uniqueId: UniqueId) => ParsedSearchAsset | null;
+  getTotalBalance: () => number;
+  getFilteredUserAssetIds: () => UniqueId[];
+}
+```
+
+### Asset Structure
+
+```typescript
+type Asset = {
+  address: string;           // Token contract address
+  chainId: number;          // Blockchain network ID
+  name: string;             // Token name
+  symbol: string;           // Token symbol (ETH, USDC, etc.)
+  decimals: number;         // Token decimals (18 for ETH)
+  type: string;             // 'token' | 'nft'
+  iconUrl?: string;         // Token logo URL
+  network: string;          // Network name
+  verified: boolean;        // Verified by Rainbow
+  transferable: boolean;    // Can be transferred
+  probableSpam?: boolean;   // Spam detection flag
+  
+  // Pricing data
+  price: {
+    value: number;          // Current price in USD
+    changedAt: number;      // Last price update timestamp
+    relativeChange24h: number; // 24h price change %
+  };
+  
+  // Multi-chain support
+  networks: Record<string, {
+    address: string;
+    decimals: number;
+  }>;
+  
+  // Bridging capability
+  bridging: {
+    bridgeable: boolean;
+    networks: Record<string, {
+      bridgeable: boolean;
+    }>;
+  };
+  
+  // Color theming
+  colors: {
+    primary: string;
+    fallback?: string;
+  };
+};
+```
+
+### User Asset (with balance)
+
+```typescript
+type UserAsset = {
+  asset: Asset;
+  quantity: string;         // Token balance
+  updatedAt: string;       // Last balance update
+  value: string;           // USD value of holdings
+  smallBalance?: boolean;  // Flag for dust
+};
+
+type EnrichedAsset = Asset & {
+  balance: {
+    amount: string;        // Raw balance
+    display: string;       // Formatted for display
+  };
+  native: {
+    balance: {
+      amount: string;      // USD value
+      display: string;     // Formatted USD
+    };
+    price?: {
+      change: string;      // 24h change
+      amount: number;      // Current price
+      display: string;     // Formatted price
+    };
+  };
+};
+```
+
+## Supported Networks
+
+Rainbow supports assets across multiple chains:
+
+- **Ethereum** (Mainnet)
+- **Polygon**
+- **Optimism**
+- **Arbitrum**
+- **Base**
+- **BSC** (Binance Smart Chain)
+- **Avalanche**
+- **Zora**
+- **Blast**
+- **Degen**
+
+<Note>
+  Network support may vary by feature. Check specific documentation for swap and bridge availability per chain.
+</Note>
+
+## Viewing Assets
+
+### Asset List
+
+Assets are displayed with:
+- Token icon and symbol
+- Balance amount
+- USD value
+- 24h price change
+- Chain indicator
+
+### Filtering Options
+
+```typescript
+type UserAssetFilter = 
+  | 'all'           // All assets
+  | 'verified'      // Verified tokens only
+  | 'unverified'    // Unverified tokens
+  | 'small'         // Small balance (dust)
+  | 'hidden';       // Hidden assets
+```
+
+Users can filter by:
+
+<Tabs>
+  <Tab title="All Assets">
+    Shows every token in wallet:
+    - Verified and unverified
+    - All balances
+    - All chains
+    - Default view
+  </Tab>
+  
+  <Tab title="Verified Only">
+    Shows trusted tokens:
+    - Verified by Rainbow
+    - Major tokens
+    - Reduces spam
+    - Safer for beginners
+  </Tab>
+  
+  <Tab title="By Chain">
+    Filter by blockchain:
+    - Select specific network
+    - See chain-specific balance
+    - Useful for multi-chain users
+  </Tab>
+  
+  <Tab title="Hide Small Balances">
+    Removes dust tokens:
+    - Configurable threshold
+    - Cleaner UI
+    - Can toggle on/off
+    - Small balances still counted in total
+  </Tab>
+</Tabs>
+
+## Asset Fetching
+
+Assets are fetched from Rainbow backend:
+
+```typescript
+type UserAssetsParams = {
+  address: Address | string;  // Wallet address
+  currency: SupportedCurrencyKey; // Display currency (USD, EUR, etc.)
+  testnetMode: boolean;       // Include testnet assets
+};
+
+type GetAssetsResponse = {
+  metadata: {
+    requestTime: string;
+    responseTime: string;
+    requestId: string;
+    currency: string;
+    success: boolean;
+    chainIdsWithErrors?: ChainId[]; // Failed chains
+  };
+  result?: Record<string, UserAsset>; // Assets by unique ID
+  errors: { chainId: ChainId; error: string }[]; // Per-chain errors
+};
+```
+
+### Fetching Process
+
+<Steps>
+  <Step title="Trigger Fetch">
+    Assets fetch when:
+    - Wallet loads
+    - Account switches
+    - Manual refresh
+    - Background sync (periodic)
+  </Step>
+  
+  <Step title="Multi-Chain Request">
+    Single API call fetches all chains:
+    - Parallel requests to each chain
+    - Aggregated response
+    - Partial success handling
+  </Step>
+  
+  <Step title="Process Response">
+    Assets are:
+    - Parsed into typed objects
+    - Enriched with display data
+    - Stored in asset map
+    - Indexed by chain
+  </Step>
+  
+  <Step title="Update UI">
+    UI reactively updates:
+    - Balance totals recalculated
+    - Price changes shown
+    - Charts updated
+    - Notifications for changes
+  </Step>
+</Steps>
+
+## Chain Balances
+
+Rainbow tracks balance per chain:
+
+```typescript
+getBalanceSortedChainList: () => ChainId[] {
+  const { chainBalances } = get();
+  
+  return Array.from(chainBalances.entries())
+    .sort(([, a], [, b]) => b - a) // Sort by balance descending
+    .map(([chainId]) => chainId);
+}
+
+getChainsWithBalance: () => ChainId[] {
+  const { chainBalances } = get();
+  
+  return Array.from(chainBalances.entries())
+    .filter(([, balance]) => balance > 0)
+    .map(([chainId]) => chainId);
+}
+```
+
+### Per-Chain Display
+
+Users can view:
+- Total balance per chain
+- Chain ranking by value
+- Assets on each chain
+- Chain-specific actions (swap, bridge)
+
+## Hidden Assets
+
+Users can hide unwanted tokens:
+
+```typescript
+setHiddenAssets: (uniqueIds: UniqueId[]) => {
+  const hiddenAssets = new Set(uniqueIds);
+  set({ hiddenAssets });
+  
+  // Recalculate hidden balance
+  const hiddenBalance = uniqueIds.reduce((sum, id) => {
+    const asset = get().getUserAsset(id);
+    return sum + (asset?.native?.balance?.amount || 0);
+  }, 0);
+  
+  set({ hiddenAssetsBalance: hiddenBalance.toString() });
+}
+```
+
+### Hidden Asset Features
+
+- **Hide from view**: Removed from main asset list
+- **Still counted**: Included in total portfolio value
+- **Easy unhide**: Can reveal hidden assets anytime
+- **Spam management**: Hide spam/scam tokens
+
+## Asset Search
+
+Fast search with caching:
+
+```typescript
+setSearchQuery: (query: string) => {
+  set({ inputSearchQuery: query });
+  
+  // Check cache first
+  const cached = get().searchCache.get(query);
+  if (cached) return cached;
+  
+  // Filter assets
+  const filtered = Array.from(get().userAssets.values())
+    .filter(asset => {
+      const searchLower = query.toLowerCase();
+      return (
+        asset.symbol.toLowerCase().includes(searchLower) ||
+        asset.name.toLowerCase().includes(searchLower) ||
+        asset.address.toLowerCase().includes(searchLower)
+      );
+    })
+    .map(asset => asset.uniqueId);
+  
+  // Cache result
+  get().setSearchCache(query, filtered);
+  
+  return filtered;
+}
+```
+
+Search supports:
+- Token symbol (ETH, USDC)
+- Token name (Ethereum, USD Coin)
+- Contract address
+- Fuzzy matching
+
+## Live Price Updates
+
+Prices update in real-time:
+
+```typescript
+updateTokens: (tokens: LiveTokensData) => {
+  const { userAssets } = get();
+  
+  // Update each asset with new price
+  tokens.forEach(({ uniqueId, price, change24h }) => {
+    const asset = userAssets.get(uniqueId);
+    if (!asset) return;
+    
+    // Update price data
+    const updated = {
+      ...asset,
+      price: {
+        value: price,
+        changedAt: Date.now(),
+        relativeChange24h: change24h,
+      },
+    };
+    
+    userAssets.set(uniqueId, updated);
+  });
+  
+  // Recalculate balances
+  get().reprocessAssetsData();
+}
+```
+
+### Price Change Display
+
+- **Green**: Positive 24h change
+- **Red**: Negative 24h change
+- **Percentage**: Change displayed as %
+- **Sparkline**: Mini chart showing price trend
+
+## Total Balance Calculation
+
+```typescript
+getTotalBalance: () => {
+  const { userAssets, hiddenAssets, filter } = get();
+  
+  let total = 0;
+  
+  for (const [uniqueId, asset] of userAssets.entries()) {
+    // Skip hidden if filter set
+    if (filter !== 'hidden' && hiddenAssets.has(uniqueId)) {
+      continue;
+    }
+    
+    // Add asset value
+    const value = parseFloat(asset.native?.balance?.amount || '0');
+    total += value;
+  }
+  
+  return total;
+}
+```
+
+Total includes:
+- All visible assets
+- All chains
+- Current prices
+- Hidden assets (if filter allows)
+
+## Asset Actions
+
+For each asset, users can:
+
+<CardGroup cols={2}>
+  <Card title="Send" icon="paper-plane">
+    Transfer tokens to another address
+  </Card>
+  
+  <Card title="Swap" icon="arrow-right-arrow-left">
+    Exchange for another token
+  </Card>
+  
+  <Card title="Bridge" icon="bridge">
+    Move to different blockchain
+  </Card>
+  
+  <Card title="Hide" icon="eye-slash">
+    Remove from main view
+  </Card>
+</CardGroup>
+
+## Spam Detection
+
+Rainbow flags probable spam tokens:
+
+```typescript
+if (asset.probableSpam) {
+  // Display warning
+  // Require confirmation for actions
+  // Auto-hide option
+}
+```
+
+Spam indicators:
+- Unverified token
+- Suspicious name/symbol
+- Very low value
+- Recent airdrop
+- Copycat token
+
+<Warning>
+  Always verify token contracts before interacting with unverified tokens. Scammers often airdrop fake tokens to steal funds through malicious contracts.
+</Warning>
+
+## Performance Optimizations
+
+### Lazy Loading
+- Assets loaded as needed
+- Virtualized lists for long asset lists
+- Image lazy loading
+
+### Caching
+- Search results cached
+- Price data cached
+- Asset metadata cached
+- Selective invalidation
+
+### Selective Updates
+- Only changed assets re-render
+- Debounced price updates
+- Background refresh
+
+## Related Features
+
+<CardGroup cols={2}>
+  <Card title="Token List" icon="list" href="/features/assets/token-list">
+    Managing custom token lists
+  </Card>
+  
+  <Card title="NFTs" icon="image" href="/features/assets/nfts">
+    Viewing and managing NFT collections
+  </Card>
+  
+  <Card title="Collectibles" icon="gem" href="/features/assets/collectibles">
+    Digital collectibles management
+  </Card>
+  
+  <Card title="Swaps" icon="arrow-right-arrow-left" href="/features/swaps/overview">
+    Swapping between assets
+  </Card>
+</CardGroup>

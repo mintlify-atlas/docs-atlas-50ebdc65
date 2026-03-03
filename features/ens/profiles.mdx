@@ -1,0 +1,330 @@
+---
+title: 'ENS Profiles'
+description: 'Customize and manage ENS profile records and social links'
+---
+
+ENS profiles allow you to attach rich metadata to your .eth domain, creating a portable web3 identity.
+
+## Profile Records
+
+Rainbow supports a comprehensive set of ENS text records and address records:
+
+### Social Records
+
+Connect your social media profiles to your ENS name:
+
+- **Twitter**: `com.twitter` record
+- **Discord**: `com.discord` record  
+- **GitHub**: `com.github` record
+- **Reddit**: `com.reddit` record
+- **Instagram**: `com.instagram` record
+- **Telegram**: `org.telegram` record
+- **Snapchat**: Display name on Snapchat
+
+```typescript src/handlers/ens.ts
+case ENS_RECORDS.twitter:
+case ENS_RECORDS.discord:
+case ENS_RECORDS.github:
+case ENS_RECORDS.reddit:
+case ENS_RECORDS.instagram:
+case ENS_RECORDS.telegram:
+  if (value || value === '') {
+    text.push({ key, value });
+  }
+  return;
+```
+
+### Profile Information
+
+- **Display Name**: Human-readable name
+- **Description**: Bio or profile description
+- **Email**: Contact email address
+- **URL**: Personal website or link
+- **Keywords**: Searchable tags
+- **Notice**: Important announcement or notice
+
+### Cryptocurrency Addresses
+
+Attach addresses for multiple cryptocurrencies:
+
+```typescript src/handlers/ens.ts
+case ENS_RECORDS.ETH:
+case ENS_RECORDS.BTC:
+case ENS_RECORDS.LTC:
+case ENS_RECORDS.DOGE:
+  if (value || value === '') {
+    coinAddress.push({ address: value, key });
+  }
+  return;
+```
+
+Supported cryptocurrencies:
+- Ethereum (ETH)
+- Bitcoin (BTC)
+- Litecoin (LTC)
+- Dogecoin (DOGE)
+
+<Info>
+Coin address records use the `formatsByName` encoding standard to support multiple blockchain formats.
+</Info>
+
+## Fetching Profile Records
+
+Profile data is fetched from the ENS resolver:
+
+```typescript src/handlers/ens.ts
+export const fetchRecords = async (
+  ensName: string,
+  { supportedOnly = true }: { supportedOnly?: boolean } = {}
+) => {
+  const response = await ensClient.getTextRecordKeysByName({
+    name: ensName,
+  });
+  const data = response.domains[0] || {};
+  const rawRecordKeys = data.resolver?.texts || [];
+
+  const provider = getProvider({ chainId: ChainId.mainnet });
+  const resolver = await provider.getResolver(ensName);
+  const supportedRecords = Object.values(ENS_RECORDS);
+  const recordKeys = rawRecordKeys.filter(key =>
+    supportedOnly ? supportedRecords.includes(key) : true
+  );
+  
+  const recordValues = await Promise.all(
+    recordKeys.map((key: string) => resolver?.getText(key))
+  );
+  
+  const records = recordKeys.reduce((records, key, i) => {
+    return {
+      ...records,
+      ...(recordValues[i] ? { [key]: recordValues[i] } : {}),
+    };
+  }, {}) as Partial<Records>;
+
+  return records;
+};
+```
+
+<Steps>
+  <Step title="Query ENS Subgraph">
+    Fetch available text record keys from the ENS subgraph.
+  </Step>
+  
+  <Step title="Resolve Records">
+    Use the Ethereum provider to resolve each record value.
+  </Step>
+  
+  <Step title="Filter Supported Records">
+    Optionally filter to only records supported by Rainbow.
+  </Step>
+  
+  <Step title="Return Record Map">
+    Combine keys and values into a records object.
+  </Step>
+</Steps>
+
+## Fetching Coin Addresses
+
+Cryptocurrency addresses use a different resolver method:
+
+```typescript src/handlers/ens.ts
+export const fetchCoinAddresses = async (
+  ensName: string,
+  { supportedOnly = true }: { supportedOnly?: boolean } = {}
+): Promise<{ [key in ENS_RECORDS]: string }> => {
+  const response = await ensClient.getCoinTypesByName({ name: ensName });
+  const data = response.domains[0] || {};
+  const supportedRecords = Object.values(ENS_RECORDS);
+  const provider = getProvider({ chainId: ChainId.mainnet });
+  const resolver = await provider.getResolver(ensName);
+  const rawCoinTypes: number[] = data.resolver?.coinTypes || [];
+  const rawCoinTypesNames: string[] = rawCoinTypes.map(
+    type => formatsByCoinType[type].name
+  );
+  const coinTypes: number[] = rawCoinTypesNames
+    .filter(name => supportedOnly ? supportedRecords.includes(name) : true)
+    .map(name => formatsByName[name].coinType) || [];
+
+  const coinAddressValues = await Promise.all(
+    coinTypes
+      .map(async (coinType: number) => {
+        try {
+          return await resolver?.getAddress(coinType);
+        } catch (err) {
+          return undefined;
+        }
+      })
+      .filter(Boolean)
+  );
+  
+  const coinAddresses = coinTypes.reduce((coinAddresses, coinType, i) => {
+    return {
+      ...coinAddresses,
+      ...(coinAddressValues[i]
+        ? { [formatsByCoinType[coinType].name]: coinAddressValues[i] }
+        : {}),
+    };
+  }, {});
+  
+  return coinAddresses;
+};
+```
+
+## Updating Profile Records
+
+Users can update their ENS records at any time:
+
+<Steps>
+  <Step title="Navigate to ENS Settings">
+    Open the ENS name from your profile or NFT collection.
+  </Step>
+  
+  <Step title="Edit Records">
+    Modify text records, social links, or cryptocurrency addresses.
+    
+    Available in the ENS Assign Records Sheet:
+    ```typescript src/screens/ENSAssignRecordsSheet.tsx
+    // Users can edit:
+    // - Avatar
+    // - Description
+    // - Social profiles
+    // - Coin addresses
+    ```
+  </Step>
+  
+  <Step title="Confirm Update">
+    Review changes and submit the update transaction.
+    
+    ```typescript src/screens/ENSConfirmRegisterSheet.tsx
+    <EditContent
+      accentColor={accentColor}
+      sendReverseRecord={sendReverseRecord}
+      setSendReverseRecord={setSendReverseRecord}
+      showReverseRecordSwitch={accountProfile.accountENS !== ensName}
+    />
+    ```
+  </Step>
+</Steps>
+
+## Record Transaction Types
+
+Different record updates use different transaction types:
+
+```typescript src/handlers/ens.ts
+export const getTransactionTypeForRecords = (
+  registrationRecords: ENSRegistrationRecords
+) => {
+  const { coinAddress, contenthash, ensAssociatedAddress, text } =
+    registrationRecords;
+
+  if (
+    ensAssociatedAddress ||
+    (text?.length || 0) + (coinAddress?.length || 0) +
+      (typeof contenthash === 'string' ? 1 : 0) > 1
+  ) {
+    return ENSRegistrationTransactionType.MULTICALL;
+  } else if (typeof contenthash === 'string') {
+    return ENSRegistrationTransactionType.SET_CONTENTHASH;
+  } else if (text?.length) {
+    return ENSRegistrationTransactionType.SET_TEXT;
+  } else if (coinAddress?.length) {
+    return ENSRegistrationTransactionType.SET_ADDR;
+  } else {
+    return null;
+  }
+};
+```
+
+Transaction types:
+- **MULTICALL**: Set multiple records in one transaction
+- **SET_TEXT**: Update a single text record
+- **SET_ADDR**: Update a single coin address
+- **SET_CONTENTHASH**: Update IPFS or content hash
+
+## Content Hash
+
+ENS supports content hash records for decentralized websites:
+
+```typescript src/handlers/ens.ts
+export const fetchContenthash = async (ensName: string) => {
+  const provider = getProvider({ chainId: ChainId.mainnet });
+  const resolver = await provider.getResolver(ensName);
+  const contenthash = await resolver?.getContentHash();
+  return contenthash;
+};
+```
+
+Use cases:
+- IPFS website hosting
+- Decentralized blog or portfolio
+- Permanent content references
+
+<Info>
+Content hashes use the `contenthash` standard and support IPFS, IPNS, Swarm, and other decentralized protocols.
+</Info>
+
+## Profile Prefetching
+
+When ENS names appear in suggestions, Rainbow prefetches profile data:
+
+```typescript src/handlers/ens.ts
+prefetchENSAddress(
+  { name: ens },
+  { staleTime: 1000 * 60 * 10 } // 10 minutes
+);
+prefetchENSCover(ens, { cacheFirst: true });
+prefetchENSRecords(ens, { cacheFirst: true });
+prefetchFirstTransactionTimestamp({ addressOrName: ens });
+```
+
+Prefetched data:
+- Avatar image
+- Cover/header image
+- Profile records
+- First transaction timestamp
+
+## Reverse Record (Primary Name)
+
+The reverse record maps your address back to an ENS name:
+
+```typescript src/handlers/ens.ts
+export const fetchAccountPrimary = async (accountAddress: string) => {
+  const ensName = await fetchReverseRecord(accountAddress);
+  return { ensName };
+};
+```
+
+Setting a reverse record:
+
+```typescript src/handlers/ens.ts
+export const estimateENSSetNameGasLimit = async ({
+  name,
+  ownerAddress,
+}: {
+  name: string;
+  ownerAddress: string;
+}) =>
+  estimateENSTransactionGasLimit({
+    name,
+    ownerAddress,
+    type: ENSRegistrationTransactionType.SET_NAME,
+  });
+```
+
+<Warning>
+Only the owner of an ENS name can set it as their reverse record. You must own the name first.
+</Warning>
+
+## ENS Delegate
+
+Set an ENS delegate for governance:
+
+```typescript src/handlers/ens.ts
+case ENS_RECORDS.ensDelegate:
+  if (value || value === '') {
+    text.push({ key, value });
+  }
+  return;
+```
+
+Allows delegation of ENS governance voting power.

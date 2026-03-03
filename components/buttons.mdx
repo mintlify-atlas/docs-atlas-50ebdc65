@@ -1,0 +1,517 @@
+---
+title: Button Components
+description: Interactive button components with animations and press feedback
+---
+
+Rainbow provides several button components with smooth press animations and haptic feedback for creating engaging user interfaces.
+
+## ButtonPressAnimation
+
+A versatile button component with configurable press animations and haptic feedback.
+
+### Props
+
+<ParamField path="onPress" type="(event?: GestureResponderEvent) => void">
+  Handler called when the button is pressed
+</ParamField>
+
+<ParamField path="onLongPress" type="(event?: GestureResponderEvent) => void">
+  Handler called when the button is long-pressed
+</ParamField>
+
+<ParamField path="disabled" type="boolean">
+  Whether the button is disabled
+</ParamField>
+
+<ParamField path="scaleTo" type="number" default="0.96">
+  Scale value when pressed (e.g., 0.96 = 96% of original size)
+</ParamField>
+
+<ParamField path="activeOpacity" type="number">
+  Opacity when pressed
+</ParamField>
+
+<ParamField path="duration" type="number">
+  Animation duration in milliseconds
+</ParamField>
+
+<ParamField path="enableHapticFeedback" type="boolean" default="true">
+  Whether to trigger haptic feedback on press
+</ParamField>
+
+<ParamField path="hapticType" type="HapticFeedbackTypes">
+  Type of haptic feedback (e.g., "selection", "impactLight", "impactMedium")
+</ParamField>
+
+<ParamField path="transformOrigin" type="TransformOrigin | Direction">
+  Origin point for scale transformation. Can be coordinates [x, y] or direction ("top", "bottom", "left", "right")
+</ParamField>
+
+<ParamField path="onPressStart" type="() => void">
+  Handler called when press gesture starts
+</ParamField>
+
+<ParamField path="onLongPressEnded" type="() => void">
+  Handler called when long press ends
+</ParamField>
+
+<ParamField path="minLongPressDuration" type="number">
+  Minimum duration for long press in milliseconds
+</ParamField>
+
+<ParamField path="hitSlop" type="Insets">
+  Extends the touchable area
+</ParamField>
+
+<ParamField path="testID" type="string">
+  Test identifier for automated testing
+</ParamField>
+
+### iOS-Specific Props
+
+<ParamField path="compensateForTransformOrigin" type="boolean" platform="ios">
+  Compensates for transform origin changes
+</ParamField>
+
+<ParamField path="pressOutDuration" type="number" platform="ios">
+  Duration of press release animation
+</ParamField>
+
+<ParamField path="useLateHaptic" type="boolean" platform="ios">
+  Delays haptic feedback until press completes
+</ParamField>
+
+<ParamField path="isInteraction" type="boolean" platform="ios">
+  Whether this press should be counted as a user interaction
+</ParamField>
+
+### Android-Specific Props
+
+<ParamField path="reanimatedButton" type="boolean" platform="android">
+  Use Reanimated-based implementation
+</ParamField>
+
+<ParamField path="backgroundColor" type="string" platform="android">
+  Background color for ripple effect
+</ParamField>
+
+<ParamField path="borderRadius" type="number" platform="android">
+  Border radius for ripple bounds
+</ParamField>
+
+<ParamField path="exclusive" type="boolean" platform="android">
+  Prevents multiple simultaneous presses
+</ParamField>
+
+### Usage
+
+```typescript
+import ButtonPressAnimation from '@/components/animations/ButtonPressAnimation';
+import { Box, Text } from '@/design-system';
+
+function MyButton() {
+  return (
+    <ButtonPressAnimation
+      onPress={() => console.log('Pressed!')}
+      scaleTo={0.92}
+      enableHapticFeedback
+      hapticType="impactMedium"
+    >
+      <Box 
+        background="blue" 
+        padding="16px" 
+        borderRadius={12}
+      >
+        <Text size="17pt" weight="bold" color="label">
+          Press Me
+        </Text>
+      </Box>
+    </ButtonPressAnimation>
+  );
+}
+```
+
+### With Transform Origin
+
+Control the origin point of the scale animation:
+
+```typescript
+<ButtonPressAnimation
+  onPress={handlePress}
+  transformOrigin="bottom" // Scale from bottom
+  scaleTo={0.95}
+>
+  <MyContent />
+</ButtonPressAnimation>
+
+// Or use coordinates [x, y]
+<ButtonPressAnimation
+  onPress={handlePress}
+  transformOrigin={[0.5, 0]} // Center horizontally, top vertically
+  scaleTo={0.95}
+>
+  <MyContent />
+</ButtonPressAnimation>
+```
+
+### With Long Press
+
+```typescript
+<ButtonPressAnimation
+  onPress={handlePress}
+  onLongPress={handleLongPress}
+  minLongPressDuration={500}
+  onLongPressEnded={() => console.log('Long press ended')}
+>
+  <MyContent />
+</ButtonPressAnimation>
+```
+
+## SheetActionButton
+
+Stylized action buttons commonly used in sheets and modals.
+
+### Props
+
+<ParamField path="label" type="string">
+  Button label text
+</ParamField>
+
+<ParamField path="onPress" type="() => void" required>
+  Press handler
+</ParamField>
+
+<ParamField path="color" type="string">
+  Button background color
+</ParamField>
+
+<ParamField path="textColor" type="string">
+  Label text color
+</ParamField>
+
+<ParamField path="size" type="'big' | 'small' | number" default="'small'">
+  Button size preset or custom height
+</ParamField>
+
+<ParamField path="isSquare" type="boolean">
+  Whether the button should be square (removes horizontal padding)
+</ParamField>
+
+<ParamField path="disabled" type="boolean">
+  Whether the button is disabled
+</ParamField>
+
+<ParamField path="testID" type="string">
+  Test identifier
+</ParamField>
+
+### Usage
+
+```typescript
+import SheetActionButton from '@/components/sheet/sheet-action-buttons/SheetActionButton';
+
+function MySheet() {
+  return (
+    <SheetActionButton
+      label="Confirm"
+      onPress={handleConfirm}
+      color="#007AFF"
+      textColor="#FFFFFF"
+      size="big"
+    />
+  );
+}
+```
+
+### Sizes
+
+```typescript
+// Small button (46px height)
+<SheetActionButton
+  label="Cancel"
+  onPress={handleCancel}
+  size="small"
+/>
+
+// Big button (52px height)
+<SheetActionButton
+  label="Confirm"
+  onPress={handleConfirm}
+  size="big"
+/>
+
+// Custom height
+<SheetActionButton
+  label="Custom"
+  onPress={handlePress}
+  size={60}
+/>
+```
+
+### Square Buttons
+
+For icon-only buttons:
+
+```typescript
+<SheetActionButton
+  onPress={handleClose}
+  isSquare
+  size="small"
+>
+  <Icon name="close" size={20} />
+</SheetActionButton>
+```
+
+## SheetActionButtonRow
+
+Container for multiple action buttons with consistent spacing.
+
+### Props
+
+<ParamField path="children" type="ReactNode" required>
+  SheetActionButton components
+</ParamField>
+
+<ParamField path="ignorePaddingTop" type="boolean">
+  Remove top padding
+</ParamField>
+
+<ParamField path="paddingBottom" type="number">
+  Custom bottom padding
+</ParamField>
+
+### Usage
+
+```typescript
+import { SheetActionButtonRow } from '@/components/sheet/sheet-action-buttons/SheetActionButtonRow';
+import SheetActionButton from '@/components/sheet/sheet-action-buttons/SheetActionButton';
+
+function ActionButtons() {
+  return (
+    <SheetActionButtonRow>
+      <SheetActionButton
+        label="Cancel"
+        onPress={handleCancel}
+        color="#8E8E93"
+      />
+      <SheetActionButton
+        label="Confirm"
+        onPress={handleConfirm}
+        color="#007AFF"
+        size="big"
+      />
+    </SheetActionButtonRow>
+  );
+}
+```
+
+## Specialized Action Buttons
+
+### SendActionButton
+
+Pre-configured button for send actions:
+
+```typescript
+import { SendActionButton } from '@/components/sheet/sheet-action-buttons/SendActionButton';
+
+<SendActionButton
+  onPress={handleSend}
+  disabled={!isValid}
+/>
+```
+
+### BuyActionButton
+
+Pre-configured button for buy/purchase actions:
+
+```typescript
+import { BuyActionButton } from '@/components/sheet/sheet-action-buttons/BuyActionButton';
+
+<BuyActionButton
+  onPress={handleBuy}
+  disabled={!canBuy}
+/>
+```
+
+### SwapActionButton
+
+Pre-configured button for swap actions:
+
+```typescript
+import { SwapActionButton } from '@/components/sheet/sheet-action-buttons/SwapActionButton';
+
+<SwapActionButton
+  onPress={handleSwap}
+  disabled={!canSwap}
+/>
+```
+
+## Common Patterns
+
+### Button with Loading State
+
+```typescript
+import ButtonPressAnimation from '@/components/animations/ButtonPressAnimation';
+import { Box, Text } from '@/design-system';
+import Spinner from '@/components/Spinner';
+
+function LoadingButton({ isLoading, onPress, label }) {
+  return (
+    <ButtonPressAnimation
+      onPress={onPress}
+      disabled={isLoading}
+      scaleTo={0.96}
+    >
+      <Box 
+        background="blue" 
+        padding="16px" 
+        borderRadius={12}
+        alignItems="center"
+        justifyContent="center"
+      >
+        {isLoading ? (
+          <Spinner size={20} />
+        ) : (
+          <Text size="17pt" weight="bold" color="label">
+            {label}
+          </Text>
+        )}
+      </Box>
+    </ButtonPressAnimation>
+  );
+}
+```
+
+### Button with Icon
+
+```typescript
+import ButtonPressAnimation from '@/components/animations/ButtonPressAnimation';
+import { Box, Inline, Text } from '@/design-system';
+import Icon from '@/components/icons/Icon';
+
+function IconButton({ icon, label, onPress }) {
+  return (
+    <ButtonPressAnimation onPress={onPress} scaleTo={0.96}>
+      <Box 
+        background="surfaceSecondary" 
+        padding="12px" 
+        borderRadius={12}
+      >
+        <Inline space="8px" alignVertical="center">
+          <Icon name={icon} size={20} />
+          <Text size="15pt" weight="semibold" color="label">
+            {label}
+          </Text>
+        </Inline>
+      </Box>
+    </ButtonPressAnimation>
+  );
+}
+```
+
+### Disabled Button
+
+```typescript
+<ButtonPressAnimation
+  onPress={handlePress}
+  disabled={isDisabled}
+  activeOpacity={isDisabled ? 1 : 0.7}
+>
+  <Box 
+    background={isDisabled ? 'fillTertiary' : 'blue'}
+    padding="16px" 
+    borderRadius={12}
+  >
+    <Text 
+      size="17pt" 
+      weight="bold" 
+      color={isDisabled ? 'labelTertiary' : 'label'}
+    >
+      Submit
+    </Text>
+  </Box>
+</ButtonPressAnimation>
+```
+
+## Best Practices
+
+### 1. Always Provide Haptic Feedback
+
+Enable haptic feedback for better user experience:
+
+```typescript
+// ✅ Good
+<ButtonPressAnimation
+  onPress={handlePress}
+  enableHapticFeedback
+  hapticType="impactMedium"
+>
+
+// ❌ Avoid
+<ButtonPressAnimation
+  onPress={handlePress}
+  enableHapticFeedback={false}
+>
+```
+
+### 2. Use Appropriate Scale Values
+
+Subtle animations feel more polished:
+
+```typescript
+// ✅ Subtle scale
+scaleTo={0.96} // 4% reduction
+
+// ❌ Too dramatic
+scaleTo={0.8}  // 20% reduction
+```
+
+### 3. Disable During Async Operations
+
+Prevent double-taps during async operations:
+
+```typescript
+const [isLoading, setIsLoading] = useState(false);
+
+const handlePress = async () => {
+  setIsLoading(true);
+  try {
+    await someAsyncOperation();
+  } finally {
+    setIsLoading(false);
+  }
+};
+
+<ButtonPressAnimation
+  onPress={handlePress}
+  disabled={isLoading}
+>
+  {/* Button content */}
+</ButtonPressAnimation>
+```
+
+### 4. Provide Visual Feedback for Disabled State
+
+Make disabled state obvious:
+
+```typescript
+<ButtonPressAnimation
+  onPress={handlePress}
+  disabled={!isValid}
+>
+  <Box 
+    background={!isValid ? 'fillTertiary' : 'blue'}
+    padding="16px" 
+    borderRadius={12}
+    style={{ opacity: !isValid ? 0.5 : 1 }}
+  >
+    <Text 
+      size="17pt" 
+      weight="bold" 
+      color={!isValid ? 'labelTertiary' : 'label'}
+    >
+      Continue
+    </Text>
+  </Box>
+</ButtonPressAnimation>
+```

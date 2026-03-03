@@ -1,0 +1,697 @@
+---
+title: createQueryStore
+description: Data fetching store with automatic caching, reactivity, and retry logic
+---
+
+`createQueryStore` combines data fetching and state management in a single store. It replaces the React Query + Zustand dual-store pattern with reactive parameters and built-in caching.
+
+## Overview
+
+`createQueryStore` provides:
+- **Automatic data fetching** - Triggered by param changes
+- **Reactive parameters** - Subscribe to other stores
+- **Smart caching** - Per-query-key with configurable TTL
+- **Retry logic** - Exponential backoff on errors
+- **Abort control** - Cancel stale requests
+- **Background refetching** - Keep data fresh
+- **Optional persistence** - MMKV storage support
+
+## Basic Usage
+
+```typescript
+import { createQueryStore } from '@/state/internal/createQueryStore';
+import { time } from '@/utils/time';
+
+const useTokenPriceStore = createQueryStore({
+  fetcher: async ({ tokenAddress }) => {
+    const response = await fetch(`/api/price/${tokenAddress}`);
+    return response.json();
+  },
+  params: {
+    tokenAddress: '0x...',
+  },
+  staleTime: time.minutes(5),
+  cacheTime: time.hours(1),
+});
+```
+
+### In Components
+
+```typescript
+function TokenPrice() {
+  // Access query state
+  const price = useTokenPriceStore((s) => s.queryCache[s.queryKey]?.data);
+  const status = useTokenPriceStore((s) => s.status);
+  const error = useTokenPriceStore((s) => s.error);
+  
+  // Or use helper methods
+  const { isLoading, isSuccess } = useTokenPriceStore((s) => s.getStatus());
+  
+  if (isLoading) return <Loading />;
+  if (error) return <Error error={error} />;
+  
+  return <Text>${price}</Text>;
+}
+```
+
+## Type Signatures
+
+```typescript
+function createQueryStore<
+  TQueryFnData,           // Raw data from fetcher
+  TParams = {},           // Parameters for fetcher
+  TData = TQueryFnData,   // Transformed data (if using transform)
+>(
+  config: QueryStoreConfig<TQueryFnData, TParams, TData>,
+  persistConfig?: RainbowPersistConfig
+): RainbowStore<QueryStoreState<TData, TParams>>;
+```
+
+### Config Object
+
+```typescript
+interface QueryStoreConfig<TQueryFnData, TParams, TData> {
+  // Required: fetch function
+  fetcher: (params: TParams, abortController: AbortController | null) => Promise<TQueryFnData>;
+  
+  // Optional: parameters (static or reactive)
+  params?: {
+    [K in keyof TParams]: 
+      | TParams[K]  // Static value
+      | (($: SignalFunction, store: RainbowStore) => AttachValue<TParams[K]>);  // Reactive
+  };
+  
+  // Optional: when to refetch (default: 2 minutes)
+  staleTime?: number | (($, store) => AttachValue<number>);
+  
+  // Optional: when to evict from cache (default: 7 days)
+  cacheTime?: number | ((params: TParams) => number);
+  
+  // Optional: transform fetched data
+  transform?: (data: TQueryFnData, params: TParams) => TData;
+  
+  // Optional: custom data setter
+  setData?: (context: SetDataContext<TData, TParams>) => void;
+  
+  // Optional: callbacks
+  onFetched?: (context: { data: TData; params: TParams; fetch; set }) => void;
+  onError?: (error: Error, retryCount: number) => void;
+  
+  // Optional: behavior flags
+  enabled?: boolean | (($, store) => AttachValue<boolean>);
+  keepPreviousData?: boolean;
+  disableCache?: boolean;
+  disableAutoRefetching?: boolean;
+  abortInterruptedFetches?: boolean;  // default: true
+  
+  // Optional: retry configuration
+  maxRetries?: number;  // default: 5
+  retryDelay?: number | ((retryCount: number, error: Error) => number);
+  
+  // Optional: debugging
+  debugMode?: boolean;
+}
+```
+
+## Reactive Parameters
+
+The most powerful feature is reactive params that auto-refetch when dependencies change:
+
+```typescript
+const useUserBalanceStore = createQueryStore({
+  fetcher: async ({ address, chainId }) => {
+    return await fetchBalance(address, chainId);
+  },
+  params: {
+    // Subscribe to wallet address from another store
+    address: ($) => $(useWalletStore).selectedAddress,
+    
+    // Subscribe to chain ID
+    chainId: ($) => $(useNetworkStore).chainId,
+  },
+  staleTime: time.seconds(30),
+});
+```
+
+When `selectedAddress` or `chainId` changes, the store automatically refetches with new params.
+
+### Signal Function `$`
+
+The `$` function subscribes to other stores:
+
+```typescript
+params: {
+  // Full store state
+  address: ($) => $(useWalletStore).selectedAddress,
+  
+  // With selector and equality function
+  tokens: ($) => $(useTokensStore, 
+    (s) => s.tokens, 
+    shallowEqual
+  ),
+}
+```
+
+### Mixed Static and Reactive Params
+
+```typescript
+params: {
+  address: ($) => $(useWalletStore).address,  // Reactive
+  pageSize: 20,                               // Static
+  includeNFTs: true,                          // Static
+}
+```
+
+## Real-World Example
+
+Here's a production example from Rainbow's perps feature:
+
+```typescript src/features/perps/stores/hlTradesStore.ts
+import { createQueryStore } from '@/state/internal/createQueryStore';
+import { time } from '@/utils/time';
+
+type HlTradesParams = {
+  address: Address | string | null;
+};
+
+type FetchHlTradesResponse = {
+  trades: HlTrade[];
+  tradesBySymbol: Record<string, HlTrade[]>;
+};
+
+type HlTradesStoreActions = {
+  getTrade: (tradeId: number) => HlTrade | undefined;
+  getTrades: () => HlTrade[] | undefined;
+  getTradesBySymbol: () => Record<string, HlTrade[]> | undefined;
+};
+
+export const useHlTradesStore = createQueryStore<
+  FetchHlTradesResponse,
+  HlTradesParams,
+  HlTradesStoreActions
+>(
+  {
+    fetcher: fetchHlTrades,
+    cacheTime: time.days(1),
+    params: { 
+      // Reactive param - refetches when address changes
+      address: ($) => $(useHyperliquidClients).address 
+    },
+    staleTime: time.minutes(1),
+  },
+  // Add custom methods
+  (_, get) => ({
+    getTrade: (tradeId: number) =>
+      get().getData()?.trades.find(trade => trade.id === tradeId),
+
+    getTrades: () => get().getData()?.trades,
+
+    getTradesBySymbol: () => get().getData()?.tradesBySymbol,
+  }),
+  // Persist to storage
+  {
+    storageKey: 'hlTradesStore',
+    version: 1,
+  }
+);
+
+async function fetchHlTrades(
+  { address }: HlTradesParams,
+  abortController: AbortController | null
+): Promise<FetchHlTradesResponse> {
+  if (!address) throw new RainbowError('[HlTradesStore] Address is required');
+
+  const [historicalOrders, filledOrders] = await Promise.all([
+    getHyperliquidAccountClient().getHistoricalOrders(abortController?.signal),
+    getHyperliquidAccountClient().getFilledOrders(abortController?.signal),
+  ]);
+
+  const trades = createTradeHistory({ orders: historicalOrders, fills: filledOrders });
+
+  return {
+    trades,
+    tradesBySymbol: buildTradesBySymbol(trades),
+  };
+}
+```
+
+## Query State
+
+The store exposes comprehensive query state:
+
+```typescript
+interface QueryStoreState<TData, TParams> {
+  // Current query status
+  status: 'idle' | 'loading' | 'success' | 'error';
+  error: Error | null;
+  enabled: boolean;
+  
+  // Timing
+  lastFetchedAt: number | null;
+  
+  // Query identification
+  queryKey: string;
+  queryCache: Record<string, CacheEntry<TData>>;
+  
+  // Methods
+  fetch: (params?: Partial<TParams>, options?: FetchOptions) => Promise<TData | null>;
+  getData: (params?: TParams) => TData | null;
+  getStatus: (key?: keyof QueryStatusInfo) => QueryStatusInfo | boolean;
+  isStale: (staleTimeOverride?: number) => boolean;
+  isDataExpired: (cacheTimeOverride?: number) => boolean;
+  reset: (resetStoreState?: boolean) => void;
+}
+```
+
+### Cache Entry
+
+```typescript
+interface CacheEntry<TData> {
+  data: TData | null;
+  lastFetchedAt: number | null;
+  cacheTime: number;
+  errorInfo: {
+    error: Error;
+    lastFailedAt: number;
+    retryCount: number;
+  } | null;
+}
+```
+
+## Data Transformation
+
+Transform fetched data before storing:
+
+```typescript
+const useTokenListStore = createQueryStore({
+  fetcher: async () => {
+    const response = await fetch('/api/tokens');
+    return response.json() as RawToken[];
+  },
+  transform: (rawTokens) => {
+    return rawTokens.map(token => ({
+      ...token,
+      formattedBalance: formatBalance(token.balance),
+      usdValue: token.balance * token.price,
+    }));
+  },
+  staleTime: time.minutes(5),
+});
+```
+
+## Custom Data Setter
+
+For complex state updates, use `setData`:
+
+```typescript
+interface StoreState {
+  tokens: Token[];
+  totalValue: number;
+  lastUpdated: number;
+}
+
+const usePortfolioStore = createQueryStore<Token[], {}, StoreState>(
+  {
+    fetcher: fetchTokens,
+    setData: ({ data, set }) => {
+      const totalValue = data.reduce((sum, t) => sum + t.value, 0);
+      set({
+        tokens: data,
+        totalValue,
+        lastUpdated: Date.now(),
+      });
+    },
+  },
+  (_, get) => ({
+    tokens: [],
+    totalValue: 0,
+    lastUpdated: 0,
+  })
+);
+```
+
+## Status Helpers
+
+```typescript
+function Component() {
+  const store = useMyQueryStore();
+  
+  // Get all status flags
+  const { isIdle, isLoading, isSuccess, isError, isInitialLoad } = 
+    store.getStatus();
+  
+  // Or get specific flag
+  const isLoading = store.getStatus('isLoading');
+  
+  // Check if data is stale
+  const isStale = store.isStale();
+  
+  // Check if data expired from cache
+  const isExpired = store.isDataExpired();
+}
+```
+
+## Manual Fetching
+
+```typescript
+function Component() {
+  const fetch = useMyStore((s) => s.fetch);
+  
+  const handleRefresh = async () => {
+    // Force refetch
+    await fetch(undefined, { force: true });
+    
+    // Fetch with new params
+    await fetch({ userId: '123' });
+    
+    // Silent fetch (no loading state)
+    await fetch(undefined, { skipStoreUpdates: true });
+    
+    // Fetch without updating query key
+    await fetch(undefined, { updateQueryKey: false });
+  };
+}
+```
+
+### Fetch Options
+
+```typescript
+interface FetchOptions {
+  force?: boolean;              // Bypass cache and refetch
+  skipStoreUpdates?: boolean | 'withCache';  // Don't update loading state
+  updateQueryKey?: boolean;     // Update queryKey to new params
+  throwOnError?: boolean;       // Throw instead of returning null
+  staleTime?: number;          // Override staleTime for this fetch
+  cacheTime?: number;          // Override cacheTime for this fetch
+}
+```
+
+## Caching Behavior
+
+### Query Keys
+
+Each unique set of params gets its own cache entry:
+
+```typescript
+// These create different cache entries
+fetch({ address: '0x123' })  // Key: ["0x123"]
+fetch({ address: '0x456' })  // Key: ["0x456"]
+```
+
+### Cache Pruning
+
+Expired entries are automatically removed:
+
+```typescript
+createQueryStore({
+  fetcher: /* ... */,
+  cacheTime: time.hours(1),  // Keep for 1 hour
+  staleTime: time.minutes(5), // Refetch after 5 minutes
+});
+```
+
+- **staleTime** - When to refetch (data is "stale")
+- **cacheTime** - When to evict from cache (data is "expired")
+
+### Keep Previous Data
+
+Show old data while fetching new:
+
+```typescript
+const useStore = createQueryStore({
+  fetcher: /* ... */,
+  keepPreviousData: true,  // Don't clear data during refetch
+});
+```
+
+## Error Handling
+
+### Automatic Retry
+
+```typescript
+const useStore = createQueryStore({
+  fetcher: /* ... */,
+  maxRetries: 5,  // Retry up to 5 times
+  retryDelay: (retryCount, error) => {
+    // Exponential backoff: 5s, 10s, 20s, 40s, 80s (max 5 min)
+    const baseDelay = time.seconds(5);
+    const multiplier = Math.pow(2, retryCount);
+    return Math.min(baseDelay * multiplier, time.minutes(5));
+  },
+  onError: (error, retryCount) => {
+    logger.error(new RainbowError('Fetch failed'), { error, retryCount });
+  },
+});
+```
+
+### Error State
+
+```typescript
+function Component() {
+  const error = useStore((s) => s.error);
+  const isError = useStore((s) => s.getStatus('isError'));
+  
+  if (error) {
+    return <ErrorView message={error.message} />;
+  }
+}
+```
+
+## Conditional Fetching
+
+Disable fetching based on conditions:
+
+```typescript
+const useUserDataStore = createQueryStore({
+  fetcher: async ({ userId }) => fetchUserData(userId),
+  params: {
+    userId: ($) => $(useAuthStore).userId,
+  },
+  // Only fetch when authenticated
+  enabled: ($) => $(useAuthStore).isAuthenticated,
+  staleTime: time.minutes(5),
+});
+```
+
+## Persistence
+
+Query stores can persist their cache:
+
+```typescript
+const useStore = createQueryStore(
+  {
+    fetcher: /* ... */,
+    params: { address: ($) => $(useWalletStore).address },
+  },
+  // Optional: add custom state
+  (set, get) => ({
+    /* custom methods */
+  }),
+  // Persistence config
+  {
+    storageKey: 'myQueryStore',
+    version: 1,
+  }
+);
+```
+
+By default, these are persisted:
+- `queryCache` - Cached data
+- `lastFetchedAt` - Timestamps
+- `queryKey` - Current key
+- `status` - Query status
+- `error` - Last error
+
+These are NOT persisted:
+- `enabled` - Always reset to config value
+- Methods (`fetch`, `getData`, etc.)
+
+## Advanced Patterns
+
+### Optimistic Updates
+
+```typescript
+const useStore = createQueryStore({
+  fetcher: /* ... */,
+  onFetched: ({ data, set }) => {
+    // Update related state optimistically
+    useOtherStore.setState({ newData: data });
+  },
+});
+```
+
+### Dependent Queries
+
+```typescript
+// User query
+const useUserStore = createQueryStore({
+  fetcher: ({ userId }) => fetchUser(userId),
+  params: { userId: '123' },
+});
+
+// Posts query (depends on user)
+const usePostsStore = createQueryStore({
+  fetcher: ({ userId }) => fetchPosts(userId),
+  params: {
+    userId: ($) => $(useUserStore).getData()?.id,
+  },
+  // Only fetch when we have a user ID
+  enabled: ($) => !!$(useUserStore).getData()?.id,
+});
+```
+
+### Parallel Fetching
+
+```typescript
+const fetch1 = useStore1((s) => s.fetch);
+const fetch2 = useStore2((s) => s.fetch);
+
+// Fetch in parallel
+await Promise.all([
+  fetch1(undefined, { skipStoreUpdates: 'withCache' }),
+  fetch2(undefined, { skipStoreUpdates: 'withCache' }),
+]);
+```
+
+### Polling
+
+```typescript
+const useStore = createQueryStore({
+  fetcher: /* ... */,
+  staleTime: time.seconds(10),  // Refetch every 10 seconds
+  disableAutoRefetching: false,  // Enable background refetching
+});
+```
+
+## Debugging
+
+```typescript
+const useStore = createQueryStore({
+  fetcher: /* ... */,
+  debugMode: true,  // Enable console logs
+});
+
+// Console output:
+// [🔄 Fetching 🔄] for params: {"address":"0x..."}
+// [✅ Fetch Successful ✅] for params: {"address":"0x..."}
+// [💾 Setting Cache 💾] for params: {"address":"0x..."}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Set appropriate stale/cache times">
+    Balance freshness with performance:
+    
+    ```typescript
+    // Fast-changing data
+    staleTime: time.seconds(30)
+    cacheTime: time.minutes(5)
+    
+    // Slow-changing data
+    staleTime: time.minutes(5)
+    cacheTime: time.hours(1)
+    
+    // Static data
+    staleTime: time.hours(24)
+    cacheTime: time.days(7)
+    ```
+  </Accordion>
+  
+  <Accordion title="Use reactive params for dynamic queries">
+    Let the store handle refetching:
+    
+    ```typescript
+    // ✅ Good - automatic refetching
+    params: {
+      address: ($) => $(useWalletStore).address,
+    }
+    
+    // ❌ Bad - manual refetching
+    useEffect(() => {
+      fetch({ address: walletAddress });
+    }, [walletAddress]);
+    ```
+  </Accordion>
+  
+  <Accordion title="Handle errors gracefully">
+    Always provide error handling:
+    
+    ```typescript
+    const error = useStore((s) => s.error);
+    const isError = useStore((s) => s.getStatus('isError'));
+    
+    if (isError && error) {
+      return <ErrorBoundary error={error} />;
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Use AbortController for cancellation">
+    The fetcher receives an AbortController:
+    
+    ```typescript
+    fetcher: async (params, abortController) => {
+      const response = await fetch('/api/data', {
+        signal: abortController?.signal,
+      });
+      return response.json();
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Migration from React Query
+
+<CodeGroup>
+
+```typescript Before (React Query)
+import { useQuery } from '@tanstack/react-query';
+
+function useTokenPrice(address: string) {
+  return useQuery(
+    ['tokenPrice', address],
+    () => fetchPrice(address),
+    {
+      staleTime: 5 * 60 * 1000,
+      cacheTime: 60 * 60 * 1000,
+    }
+  );
+}
+
+function Component() {
+  const { data, isLoading, error } = useTokenPrice(address);
+}
+```
+
+```typescript After (createQueryStore)
+import { createQueryStore } from '@/state/internal/createQueryStore';
+
+const useTokenPriceStore = createQueryStore({
+  fetcher: async ({ address }) => fetchPrice(address),
+  params: {
+    address: ($) => $(useWalletStore).address,
+  },
+  staleTime: time.minutes(5),
+  cacheTime: time.hours(1),
+});
+
+function Component() {
+  const data = useTokenPriceStore((s) => s.getData());
+  const isLoading = useTokenPriceStore((s) => s.getStatus('isLoading'));
+  const error = useTokenPriceStore((s) => s.error);
+}
+```
+
+</CodeGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="createDerivedStore" icon="code-branch" href="/architecture/state/derived-store">
+    Learn about derived/computed state
+  </Card>
+  <Card title="Storage System" icon="hard-drive" href="/architecture/storage">
+    Understand persistence
+  </Card>
+</CardGroup>

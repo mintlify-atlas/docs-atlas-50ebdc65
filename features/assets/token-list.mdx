@@ -1,0 +1,472 @@
+---
+title: Token List Management
+description: Custom token lists, verified tokens, and asset discovery
+---
+
+Rainbow uses curated token lists to provide verified, safe assets while allowing users to discover and add custom tokens.
+
+## Token Verification
+
+Tokens in Rainbow are categorized by verification status:
+
+### Verified Tokens
+
+<Check>
+  **Rainbow Verified**: Curated by Rainbow team
+</Check>
+
+<Check>
+  **Community Verified**: Popular tokens with high volume
+</Check>
+
+<Check>
+  **Contract Verified**: Source code verified on Etherscan
+</Check>
+
+Verified tokens:
+- Appear first in lists
+- Show verification badge
+- Enabled by default in filters
+- Safer for trading
+
+### Unverified Tokens
+
+Unverified tokens:
+- May be legitimate but not reviewed
+- Show warning indicators
+- Require confirmation for actions
+- Can be manually added by address
+
+<Warning>
+  Exercise caution with unverified tokens. Always verify the contract address from official sources before adding or trading.
+</Warning>
+
+## Asset Discovery
+
+Rainbow helps users discover assets in multiple ways:
+
+### Automatic Detection
+
+<Steps>
+  <Step title="Balance Scan">
+    Rainbow automatically detects:
+    - Tokens held in wallet
+    - Across all supported chains
+    - Including recent transfers
+    - Updates every few minutes
+  </Step>
+  
+  <Step title="Asset Enrichment">
+    Detected tokens enriched with:
+    - Current price data
+    - 24h price change
+    - Token metadata (name, symbol, logo)
+    - Verification status
+    - Multi-chain availability
+  </Step>
+  
+  <Step title="Display">
+    Assets appear in:
+    - Main asset list
+    - Sorted by USD value
+    - With real-time balances
+    - Ready for use
+  </Step>
+</Steps>
+
+### Manual Token Addition
+
+Users can add tokens by contract address:
+
+```typescript
+// From src/__swaps__/types/assets.ts
+interface ParsedSearchAsset {
+  address: string;      // Contract address
+  chainId: ChainId;    // Network ID
+  name: string;
+  symbol: string;
+  decimals: number;
+  verified: boolean;   // Will be false for manual adds
+  // ... other fields
+}
+```
+
+<Steps>
+  <Step title="Find Contract Address">
+    Get token contract from:
+    - Project website
+    - Etherscan/block explorer
+    - CoinGecko/CoinMarketCap
+    - Trusted source
+  </Step>
+  
+  <Step title="Add to Rainbow">
+    In Rainbow:
+    - Tap search in asset list
+    - Paste contract address
+    - Verify token details match
+    - Confirm to add
+  </Step>
+  
+  <Step title="Token Added">
+    Token now:
+    - Appears in your asset list
+    - Shows current balance
+    - Available for swaps
+    - Marked as unverified
+  </Step>
+</Steps>
+
+## Multi-Chain Token Support
+
+Many tokens exist on multiple chains:
+
+```typescript
+type Asset = {
+  // Primary chain
+  address: string;
+  chainId: number;
+  
+  // All chains where token exists
+  networks: Record<string, {
+    address: string;    // Contract on that chain
+    decimals: number;   // May differ per chain
+  }>;
+  
+  // Bridge support
+  bridging: {
+    bridgeable: boolean;
+    networks: Record<string, {
+      bridgeable: boolean;  // Can bridge to this chain
+    }>;
+  };
+};
+```
+
+### Example: USDC Multi-Chain
+
+USDC exists on multiple chains:
+- **Ethereum**: `0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48`
+- **Polygon**: `0x2791bca1f2de4661ed88a30c99a7a9449aa84174`
+- **Arbitrum**: `0xff970a61a04b1ca14834a43f5de4533ebddb5cc8`
+- **Optimism**: `0x7f5c764cbc14f9669b88837ca1490cca17c31607`
+- **Base**: `0x833589fcd6edb6e08f4c7c32d4f71b54bda02913`
+
+Rainbow:
+- Shows total USDC across all chains
+- Allows per-chain breakdown
+- Enables cross-chain bridging
+- Aggregates for total portfolio
+
+## Token Search
+
+Powerful search across all known tokens:
+
+### Search Features
+
+<Tabs>
+  <Tab title="Symbol Search">
+    Search by ticker:
+    ```
+    ETH → Ethereum
+    USDC → USD Coin
+    UNI → Uniswap
+    ```
+    - Case insensitive
+    - Partial matches
+    - Most popular first
+  </Tab>
+  
+  <Tab title="Name Search">
+    Search by full name:
+    ```
+    "Ethereum" → ETH
+    "Wrapped Bitcoin" → WBTC
+    "Chainlink" → LINK
+    ```
+    - Fuzzy matching
+    - Includes description
+  </Tab>
+  
+  <Tab title="Address Search">
+    Search by contract:
+    ```
+    0x... → Exact token match
+    ```
+    - Validates checksum
+    - Shows if already in wallet
+    - Quick add if not present
+  </Tab>
+  
+  <Tab title="Cross-Chain Search">
+    Find token on any chain:
+    - Shows all networks
+    - Filter by chain
+    - See which chains support token
+  </Tab>
+</Tabs>
+
+### Search Implementation
+
+```typescript
+// From src/__swaps__/screens/Swap/resources/search/searchV2.ts
+const searchAssets = ({
+  query,
+  filter,
+  chainId,
+}: {
+  query: string;
+  filter?: 'verified' | 'all';
+  chainId?: ChainId;
+}) => {
+  const searchLower = query.toLowerCase();
+  
+  return allAssets.filter(asset => {
+    // Filter by chain if specified
+    if (chainId && asset.chainId !== chainId) {
+      return false;
+    }
+    
+    // Filter by verification if specified
+    if (filter === 'verified' && !asset.verified) {
+      return false;
+    }
+    
+    // Match against symbol, name, or address
+    return (
+      asset.symbol.toLowerCase().includes(searchLower) ||
+      asset.name.toLowerCase().includes(searchLower) ||
+      asset.address.toLowerCase() === searchLower
+    );
+  });
+};
+```
+
+## Favorites
+
+Users can mark tokens as favorites:
+
+### Favorite Features
+- Quick access to frequently used tokens
+- Appear at top of swap token selector
+- Synced across devices (if cloud backup enabled)
+- Per-chain favorites support
+
+### Managing Favorites
+
+<Steps>
+  <Step title="Add Favorite">
+    - Long press on token in list
+    - Tap star icon
+    - Or via token details page
+  </Step>
+  
+  <Step title="View Favorites">
+    - Filter asset list to favorites
+    - See in swap token selector
+    - Favorites section always visible
+  </Step>
+  
+  <Step title="Remove Favorite">
+    - Tap star icon again
+    - Or via favorites management
+  </Step>
+</Steps>
+
+## Popular Tokens
+
+Rainbow highlights popular tokens:
+
+```typescript
+// From src/__swaps__/types/search.ts
+type AssetToBuySectionId = 
+  | 'bridge'
+  | 'recent'
+  | 'favorites' 
+  | 'verified'
+  | 'unverified'
+  | 'other_networks'
+  | 'popular';  // Popular tokens section
+```
+
+### Popular Token Features
+
+- **High volume**: Based on trading volume
+- **Community favorites**: Most held tokens
+- **New & trending**: Recently popular
+- **Per-chain**: Different popular tokens per network
+
+## Token Metadata
+
+Each token has rich metadata:
+
+```typescript
+interface TokenMetadata {
+  name: string;              // Full name
+  symbol: string;            // Ticker
+  decimals: number;          // Precision
+  iconUrl?: string;          // Logo image
+  description?: string;      // What is this token
+  website?: string;          // Official website
+  twitter?: string;          // Social media
+  
+  colors: {
+    primary: string;         // Brand color
+    fallback?: string;       // Alt color
+  };
+  
+  price: {
+    value: number;           // Current price
+    changedAt: number;       // Last update
+    relativeChange24h: number; // % change
+  };
+}
+```
+
+### Color Theming
+
+Rainbow uses token colors for UI:
+- Token row background tint
+- Chart colors
+- Button accents
+- Visual consistency
+
+```typescript
+// From src/__swaps__/utils/swaps.ts
+const getHighContrastColor = (color: string): ResponseByTheme<string> => {
+  let lightColor = color;
+  let darkColor = color;
+  
+  // Ensure contrast in light mode
+  const lightModeContrast = chroma.contrast(lightColor, globalColors.white100);
+  if (lightModeContrast < 2.5) {
+    lightColor = chroma(lightColor)
+      .darken(2.5 - lightModeContrast)
+      .hex();
+  }
+  
+  // Ensure contrast in dark mode
+  const darkModeContrast = chroma.contrast(darkColor, globalColors.grey100);
+  if (darkModeContrast < 3) {
+    darkColor = chroma(darkColor)
+      .set('hsl.l', 0.8)
+      .hex();
+  }
+  
+  return { light: lightColor, dark: darkColor };
+};
+```
+
+## Token Security
+
+### Scam Detection
+
+Rainbow identifies potential scams:
+
+```typescript
+interface Asset {
+  probableSpam?: boolean;    // Spam flag
+  transferable: boolean;     // Can be transferred
+  verified: boolean;         // Verified status
+}
+```
+
+Scam indicators:
+- Unverified with suspicious name
+- Impersonating popular tokens
+- Non-transferable tokens
+- Honeypot contracts
+- Recent low-value airdrops
+
+<Warning>
+  Common scam tactics:
+  - Fake USDC/USDT with typos
+  - "Reward" tokens requiring approval
+  - NFTs linking to phishing sites
+  - Tokens that can't be sold
+  
+  Always verify contract address from official sources!
+</Warning>
+
+### Safe Token Practices
+
+<Steps>
+  <Step title="Verify Source">
+    Before adding tokens:
+    - Check official project website
+    - Verify contract on Etherscan
+    - Cross-reference multiple sources
+    - Look for verification badges
+  </Step>
+  
+  <Step title="Check Liquidity">
+    For trading:
+    - Check DEX liquidity
+    - Verify trading volume
+    - Look at holder count
+    - Check market cap
+  </Step>
+  
+  <Step title="Test Small Amount">
+    Before large transactions:
+    - Send small test amount first
+    - Verify token behaves normally
+    - Check you can sell/swap
+    - Confirm contract functions
+  </Step>
+  
+  <Step title="Research Project">
+    Due diligence:
+    - Read project documentation
+    - Check team/community
+    - Review audit reports
+    - Understand tokenomics
+  </Step>
+</Steps>
+
+## Custom Token Lists
+
+Advanced users can use custom token lists:
+
+### Token List Format
+
+Follows standard format:
+```json
+{
+  "name": "My Token List",
+  "tokens": [
+    {
+      "chainId": 1,
+      "address": "0x...",
+      "name": "Token Name",
+      "symbol": "TKN",
+      "decimals": 18,
+      "logoURI": "https://..."
+    }
+  ]
+}
+```
+
+<Note>
+  Custom token list support is primarily for developers. Most users should rely on Rainbow's verified token list.
+</Note>
+
+## Related Features
+
+<CardGroup cols={2}>
+  <Card title="Assets Overview" icon="coins" href="/features/assets/overview">
+    Managing all your crypto assets
+  </Card>
+  
+  <Card title="NFTs" icon="image" href="/features/assets/nfts">
+    NFT collection management
+  </Card>
+  
+  <Card title="Swaps" icon="arrow-right-arrow-left" href="/features/swaps/overview">
+    Swapping between tokens
+  </Card>
+  
+  <Card title="Quote Fetching" icon="magnifying-glass-dollar" href="/features/swaps/quote-fetching">
+    How swap quotes work
+  </Card>
+</CardGroup>

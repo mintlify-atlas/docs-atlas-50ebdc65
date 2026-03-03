@@ -1,0 +1,522 @@
+---
+title: Swaps Overview
+description: Token swapping and cross-chain bridging in Rainbow Wallet
+---
+
+Rainbow provides seamless token swapping within and across blockchains, powered by aggregated DEX liquidity and optimized routing.
+
+## Swap Types
+
+Rainbow supports two main swap types:
+
+### Same-Chain Swaps
+
+<Info>
+  **Same-Chain Swaps** exchange tokens on the same blockchain network.
+</Info>
+
+Features:
+- **Fast execution**: Single transaction
+- **Lower cost**: Only one network's gas fees
+- **Instant settlement**: Immediate token receipt
+- **Wide token support**: Thousands of tokens
+
+Example: ETH → USDC on Ethereum mainnet
+
+### Cross-Chain Swaps (Bridging)
+
+<Info>
+  **Cross-Chain Swaps** move tokens between different blockchain networks.
+</Info>
+
+Features:
+- **Multi-step process**: Bridge + swap if needed
+- **Higher cost**: Gas on multiple networks
+- **Longer time**: Minutes to hours
+- **Network flexibility**: Access tokens on any chain
+
+Example: USDC on Ethereum → USDC on Polygon
+
+```typescript
+// From src/__swaps__/types/swap.ts
+const isCrosschainSwap = inputAsset.chainId !== outputAsset.chainId;
+
+const type = isCrosschainSwap ? 'crosschainSwap' : 'swap';
+```
+
+## Swap Architecture
+
+Rainbow uses a sophisticated swap system with shared values and reactive state:
+
+```typescript
+// From src/__swaps__/screens/Swap/providers/swap-provider.tsx
+interface SwapContextType {
+  // Asset selection
+  internalSelectedInputAsset: SharedValue<ExtendedAnimatedAssetWithColors | null>;
+  internalSelectedOutputAsset: SharedValue<ExtendedAnimatedAssetWithColors | null>;
+  
+  // Quote data
+  quote: SharedValue<Quote | CrosschainQuote | QuoteError | null>;
+  isFetching: SharedValue<boolean>;
+  isQuoteStale: SharedValue<number>;
+  
+  // User inputs
+  lastTypedInput: SharedValue<InputKeys>;
+  sliderXPosition: SharedValue<number>;
+  
+  // Actions
+  executeSwap: () => void;
+  setAsset: (params) => void;
+}
+```
+
+### Quote Types
+
+```typescript
+// Same-chain quote
+interface Quote {
+  sellAmount: string;           // Input amount (wei)
+  buyAmount: string;            // Output amount (wei)
+  sellTokenAsset: Asset;        // Input token details
+  buyTokenAsset: Asset;         // Output token details
+  allowanceTarget: string;      // Approval contract
+  to: string;                   // Swap contract
+  data: string;                 // Transaction data
+  value: string;                // ETH value
+  gas: string;                  // Estimated gas
+  gasPrice?: string;            // Gas price
+}
+
+// Cross-chain quote
+interface CrosschainQuote extends Quote {
+  swapType: SwapType.crossChain;
+  routes: Array<{
+    bridgeRoute: BridgeRoute;
+    recipient?: string;
+    userTxs?: Transaction[];
+    serviceTime?: number;       // Estimated time (seconds)
+  }>;
+}
+```
+
+## User Swap Flow
+
+<Steps>
+  <Step title="Select Input Token">
+    Choose token to swap from:
+    - Tap input asset selector
+    - Search or browse tokens
+    - Shows your balance
+    - Filter by chain
+  </Step>
+  
+  <Step title="Enter Amount">
+    Specify swap amount:
+    - Type amount directly
+    - Use percentage slider (25%, 50%, 75%, 100%)
+    - See USD value live
+    - Validate sufficient balance
+  </Step>
+  
+  <Step title="Select Output Token">
+    Choose token to receive:
+    - Tap output asset selector  
+    - Search tokens on any chain
+    - See popular suggestions
+    - Rainbow suggests bridged version if cross-chain
+  </Step>
+  
+  <Step title="Review Quote">
+    Rainbow fetches best quote:
+    - Multiple DEX aggregators queried
+    - Best rate automatically selected
+    - Shows exchange rate
+    - Displays estimated gas
+    - Indicates price impact
+  </Step>
+  
+  <Step title="Adjust Settings (Optional)">
+    Customize swap parameters:
+    - Slippage tolerance
+    - Gas speed (slow/normal/fast/urgent)
+    - MEV protection
+    - Swap source preference
+  </Step>
+  
+  <Step title="Execute Swap">
+    Complete the swap:
+    - Tap and hold swap button
+    - Approve token (if first time)
+    - Sign swap transaction
+    - Track in activity feed
+  </Step>
+  
+  <Step title="Receive Tokens">
+    Tokens arrive in wallet:
+    - Same-chain: Immediately after confirmation
+    - Cross-chain: After bridge completes (mins-hours)
+    - Notification on completion
+  </Step>
+</Steps>
+
+## Swap Settings
+
+Customizable swap parameters:
+
+### Slippage Tolerance
+
+```typescript
+// From src/__swaps__/utils/swaps.ts
+const DEFAULT_SLIPPAGE_BIPS = 500; // 5%
+
+const getDefaultSlippage = (
+  chainId: ChainId,
+  slippageConfig: RainbowConfig['default_slippage_bips_chainId']
+) => {
+  const amount = +(
+    slippageConfig[chainId] ||
+    DEFAULT_SLIPPAGE_BIPS_CHAINID[chainId] ||
+    DEFAULT_SLIPPAGE_BIPS
+  );
+  return slippageInBipsToString(amount); // "5.0"
+};
+```
+
+Slippage controls:
+- **How much price can change**: Before transaction fails
+- **Basis points**: 100 bips = 1%
+- **Default**: 5% (500 bips) for most swaps
+- **Custom**: Set your own tolerance
+- **Higher = more likely to succeed, worse price**
+- **Lower = better price, more likely to fail**
+
+<Note>
+  For volatile or low-liquidity tokens, you may need to increase slippage to 10-15% for swaps to succeed.
+</Note>
+
+### Gas Speed
+
+```typescript
+// From src/__swaps__/types/gas.ts
+enum GasSpeed {
+  URGENT = 'urgent',   // Fastest, highest cost
+  FAST = 'fast',       // Fast, higher cost
+  NORMAL = 'normal',   // Standard, balanced
+  CUSTOM = 'custom',   // User-defined
+}
+
+interface GasFeeParams {
+  maxBaseFee: GasFeeParam;
+  maxPriorityFeePerGas: GasFeeParam;
+  estimatedTime: { amount: number; display: string };
+  gasFee: { amount: string; display: string };
+}
+```
+
+Gas options:
+- **Normal**: Default, usually confirms in 1-2 minutes
+- **Fast**: Priority, confirms in less than 1 minute
+- **Urgent**: Maximum priority, next block
+- **Custom**: Set your own gas price and limit
+
+### Swap Source
+
+Choose which aggregators to use:
+- **Auto** (default): Rainbow selects best
+- **Specific DEX**: Force use of particular aggregator
+- **Rainbow Swap**: Rainbow's own routing
+
+## Quote Fetching
+
+Quotes are fetched reactively:
+
+```typescript
+// Automatic quote fetching when inputs change
+const quote = useReactiveQuote({
+  inputAsset,
+  outputAsset,
+  inputAmount,
+  outputAmount,
+  lastTypedInput,
+});
+```
+
+Quote updates when:
+- Input/output asset changes
+- Amount changes
+- Slippage changes
+- Gas settings change
+- Every 12 seconds (automatic refresh)
+
+See [Quote Fetching](/features/swaps/quote-fetching) for detailed quote mechanism.
+
+## Gas Estimation
+
+Gas estimated before swap:
+
+```typescript
+// From src/__swaps__/screens/Swap/hooks/useSwapEstimatedGasLimit.ts
+const estimatedGasLimit = useSwapEstimatedGasLimit({
+  chainId,
+  quote,
+  assetToSell,
+});
+
+// Different estimates for different swap types
+const gasLimit = await (
+  quote.swapType === SwapType.crossChain
+    ? estimateUnlockAndCrosschainSwap({ chainId, quote })
+    : estimateUnlockAndSwap({ chainId, quote })
+);
+```
+
+Gas estimation includes:
+- Token approval (if needed)
+- Swap execution
+- Cross-chain bridge (if applicable)
+- Safety margin (10%)
+
+See [Gas Estimation](/features/swaps/gas-estimation) for details.
+
+## Price Impact
+
+Shows how swap affects market price:
+
+- **Less than 1%**: Low impact, good liquidity
+- **1-3%**: Medium impact, acceptable
+- **3-5%**: High impact, proceed with caution
+- **Greater than 5%**: Very high impact, warning shown
+
+```typescript
+const priceImpact = calculatePriceImpact(
+  inputAmount,
+  outputAmount,
+  marketPrice
+);
+
+if (priceImpact > 5) {
+  showWarning('High price impact! Consider smaller trade.');
+}
+```
+
+<Warning>
+  High price impact means you're moving the market price significantly. Consider:
+  - Trading smaller amounts
+  - Splitting into multiple trades
+  - Using limit orders instead
+  - Checking if there's enough liquidity
+</Warning>
+
+## Swap Confirmation
+
+Before executing, review:
+
+<Tabs>
+  <Tab title="Amounts">
+    Verify swap details:
+    - Input amount and token
+    - Output amount (minimum)
+    - Exchange rate
+    - USD values
+  </Tab>
+  
+  <Tab title="Fees">
+    Understand costs:
+    - Network gas fees
+    - Protocol fees (if any)
+    - Total cost in USD
+    - % of trade size
+  </Tab>
+  
+  <Tab title="Route">
+    See swap routing:
+    - DEX aggregator used
+    - Liquidity sources
+    - Multi-hop if applicable
+    - Bridge route (cross-chain)
+  </Tab>
+  
+  <Tab title="Settings">
+    Confirm parameters:
+    - Slippage tolerance
+    - Gas speed
+    - Estimated time
+    - Recipient address
+  </Tab>
+</Tabs>
+
+## Swap Execution
+
+```typescript
+// From src/__swaps__/screens/Swap/providers/swap-provider.tsx
+const executeSwap = () => {
+  const { inputAsset, outputAsset, quote } = getSwapState();
+  
+  // Determine swap type
+  const type = inputAsset.chainId !== outputAsset.chainId
+    ? 'crosschainSwap'
+    : 'swap';
+  
+  // Build swap parameters
+  const swapParams: RapSwapActionParameters = {
+    sellAmount: quote.sellAmount,
+    buyAmount: quote.buyAmount,
+    assetToSell: inputAsset,
+    assetToBuy: outputAsset,
+    quote,
+    chainId: inputAsset.chainId,
+    requiresApproval: needsApproval(inputAsset, quote),
+  };
+  
+  // Execute via RAP (Rainbow Action Protocol)
+  await walletExecuteRap({
+    type,
+    parameters: swapParams,
+  });
+  
+  // Track analytics
+  trackSwapEvent({ type, ...swapParams });
+};
+```
+
+### Approval Process
+
+For ERC-20 tokens (not ETH):
+
+<Steps>
+  <Step title="Check Allowance">
+    Rainbow checks if approval needed:
+    - Query current allowance
+    - Compare with swap amount
+    - Skip if sufficient allowance
+  </Step>
+  
+  <Step title="Request Approval">
+    If approval needed:
+    - First transaction: Token approval
+    - User signs approval
+    - Wait for confirmation
+  </Step>
+  
+  <Step title="Execute Swap">
+    After approval confirmed:
+    - Second transaction: Actual swap
+    - User signs swap
+    - Tokens swapped
+  </Step>
+</Steps>
+
+<Note>
+  Rainbow requests **exact amount** approval by default for security. You can enable unlimited approvals in settings if you prefer convenience over security.
+</Note>
+
+## Swap Status Tracking
+
+Track swap progress:
+
+- **Pending**: Transaction submitted to network
+- **Confirming**: Waiting for block confirmations
+- **Bridging**: Cross-chain transfer in progress
+- **Complete**: Tokens received
+- **Failed**: Transaction reverted or rejected
+
+## Error Handling
+
+Common swap errors:
+
+<AccordionGroup>
+  <Accordion title="Insufficient Balance">
+    **Error**: Not enough tokens to swap
+    
+    **Solutions**:
+    - Reduce swap amount
+    - Account for gas fees
+    - Check you have balance on correct chain
+  </Accordion>
+  
+  <Accordion title="Slippage Tolerance Exceeded">
+    **Error**: Price moved beyond slippage tolerance
+    
+    **Solutions**:
+    - Increase slippage tolerance
+    - Wait for less volatility
+    - Trade smaller amount
+    - Retry swap
+  </Accordion>
+  
+  <Accordion title="Quote Fetch Failed">
+    **Error**: Cannot get swap quote
+    
+    **Solutions**:
+    - Check network connection
+    - Verify token exists on chain
+    - Try different amount
+    - Check if pair has liquidity
+  </Accordion>
+  
+  <Accordion title="Transaction Failed">
+    **Error**: Swap transaction reverted
+    
+    **Solutions**:
+    - Check gas settings
+    - Increase slippage
+    - Verify balances
+    - Try again with updated quote
+  </Accordion>
+</AccordionGroup>
+
+## Best Practices
+
+<Steps>
+  <Step title="Check Multiple Quotes">
+    Compare options:
+    - Let Rainbow auto-select best
+    - Review exchange rate
+    - Check gas costs
+    - Consider price impact
+  </Step>
+  
+  <Step title="Set Appropriate Slippage">
+    Balance risk and success:
+    - 0.5-1% for stable pairs
+    - 2-5% for standard tokens
+    - 5-15% for volatile/low liquidity
+    - Monitor for frontrunning with high slippage
+  </Step>
+  
+  <Step title="Mind the Gas">
+    Optimize costs:
+    - Don't swap amounts smaller than gas cost
+    - Use L2s for small swaps
+    - Batch operations when possible
+    - Wait for lower gas if not urgent
+  </Step>
+  
+  <Step title="Verify Tokens">
+    Ensure correctness:
+    - Check token contract address
+    - Verify token name and symbol
+    - Confirm you're on right chain
+    - Watch for scam tokens
+  </Step>
+</Steps>
+
+## Related Features
+
+<CardGroup cols={2}>
+  <Card title="Quote Fetching" icon="magnifying-glass-dollar" href="/features/swaps/quote-fetching">
+    How swap quotes are obtained
+  </Card>
+  
+  <Card title="Gas Estimation" icon="gauge-high" href="/features/swaps/gas-estimation">
+    Gas calculation and optimization
+  </Card>
+  
+  <Card title="Atomic Swaps" icon="atom" href="/features/swaps/atomic-swaps">
+    Advanced atomic swap features
+  </Card>
+  
+  <Card title="Assets Overview" icon="coins" href="/features/assets/overview">
+    Managing your tokens
+  </Card>
+</CardGroup>

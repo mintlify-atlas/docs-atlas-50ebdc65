@@ -1,0 +1,359 @@
+---
+title: 'ENS Avatars'
+description: 'Configure NFT avatars and profile images for your ENS name'
+---
+
+Rainbow Wallet supports rich avatar functionality for ENS names, including NFT avatars, IPFS images, and standard image URLs.
+
+## Avatar Types
+
+ENS avatars can be set using multiple formats:
+
+- **NFT Avatar**: Any ERC-721 or ERC-1155 NFT you own
+- **IPFS**: Decentralized image hosting via IPFS
+- **HTTP/HTTPS**: Standard image URLs
+- **Data URIs**: Base64-encoded images
+
+## Setting an Avatar
+
+Configure your ENS avatar during registration or update it later:
+
+<Steps>
+  <Step title="Choose Avatar Source">
+    Select from your NFT collection or provide an image URL.
+    
+    - Browse your NFT collection
+    - Enter an IPFS hash
+    - Provide an HTTP(S) URL
+    - Upload an image (converted to IPFS)
+  </Step>
+  
+  <Step title="Preview Avatar">
+    Preview how your avatar will appear in profiles and throughout the wallet.
+    
+    The avatar is displayed:
+    - In the registration confirmation
+    - On your profile screen
+    - When sending transactions
+    - In contact suggestions
+  </Step>
+  
+  <Step title="Set Avatar Record">
+    The avatar is stored as an ENS text record.
+    
+    ```typescript src/handlers/ens.ts
+    case ENS_RECORDS.avatar:
+      if (value || value === '') {
+        text.push({
+          key,
+          value: value,
+        });
+      }
+      return;
+    ```
+  </Step>
+</Steps>
+
+## Avatar Resolution
+
+Rainbow uses a sophisticated avatar resolver that supports multiple formats:
+
+```typescript src/handlers/ens.ts
+export const fetchImage = async (
+  imageType: 'avatar' | 'header',
+  ensName: string
+) => {
+  let imageUrl;
+  const provider = getProvider({ chainId: ChainId.mainnet });
+  try {
+    const avatarResolver = new AvatarResolver(provider);
+    imageUrl = await avatarResolver.getImage(ensName, {
+      allowNonOwnerNFTs: true,
+      type: imageType,
+    });
+    ImgixImage.preload([...(imageUrl ? [{ uri: imageUrl }] : [])], 100);
+    saveENSData(imageType, ensName, { imageUrl });
+  } catch (err) {
+    // Fallback to storage images
+    const data = await getENSData(imageType, ensName);
+    imageUrl = data?.imageUrl as string;
+  }
+
+  return { imageUrl };
+};
+```
+
+<Info>
+The `AvatarResolver` library automatically handles NFT metadata parsing, IPFS gateway resolution, and image format detection.
+</Info>
+
+## NFT Avatars
+
+NFT avatars are the most common avatar type:
+
+### NFT URI Format
+
+NFT avatars use the following format:
+
+```
+eip155:1/[token_type]:[contract_address]/[token_id]
+```
+
+Example:
+```
+eip155:1/erc721:0xb47e3cd837ddf8e4c57f05d70ab865de6e193bbb/1
+```
+
+### Ownership Verification
+
+The avatar resolver can verify NFT ownership:
+
+```typescript
+const avatarResolver = new AvatarResolver(provider);
+const imageUrl = await avatarResolver.getImage(ensName, {
+  allowNonOwnerNFTs: true,  // Allow avatars user doesn't own
+  type: 'avatar',
+});
+```
+
+<Warning>
+By default, Rainbow allows avatars from NFTs you don't own (`allowNonOwnerNFTs: true`). This provides flexibility but means anyone can set any NFT as their avatar.
+</Warning>
+
+### NFT Metadata Resolution
+
+For NFT avatars, the resolver:
+
+1. Parses the NFT URI format
+2. Calls the NFT contract's `tokenURI()` method
+3. Fetches the metadata JSON
+4. Extracts the `image` field
+5. Resolves IPFS/HTTP URLs through gateways
+6. Returns the final image URL
+
+## Header Images
+
+ENS also supports header/cover images:
+
+```typescript src/handlers/ens.ts
+case ENS_RECORDS.header:
+  if (value || value === '') {
+    text.push({
+      key,
+      value: value,
+    });
+  }
+  return;
+```
+
+Header images appear:
+- On profile screens
+- In expanded ENS views
+- When viewing ENS details
+
+## Avatar Caching
+
+Avatars are cached for performance:
+
+```typescript src/handlers/ens.ts
+try {
+  avatar = await fetchENSAvatar(ens, {
+    cacheFirst: true,
+  });
+  prefetchENSAddress(
+    { name: ens },
+    { staleTime: 1000 * 60 * 10 } // 10 minutes
+  );
+  prefetchENSCover(ens, { cacheFirst: true });
+  prefetchENSRecords(ens, { cacheFirst: true });
+} catch (e) {}
+```
+
+Caching strategy:
+- **Cache-first**: Check local cache before fetching
+- **Preloading**: Load images before display
+- **Local storage**: Save fetched avatars
+- **10-minute stale time**: Refresh after 10 minutes
+
+## Image Processing
+
+Rainbow processes avatar images through Imgix:
+
+```typescript src/handlers/ens.ts
+ImgixImage.preload([...(imageUrl ? [{ uri: imageUrl }] : [])], 100);
+```
+
+Benefits:
+- Automatic image optimization
+- Responsive sizing
+- Format conversion (WebP, AVIF)
+- CDN delivery
+
+## Avatar Display
+
+Avatars are displayed throughout the wallet:
+
+### In Registration
+
+```typescript src/screens/ENSConfirmRegisterSheet.tsx
+{avatarUrl && (
+  <Box
+    background="body (Deprecated)"
+    borderRadius={avatarSize / 2}
+    height={{ custom: avatarSize }}
+    shadow="15px light (Deprecated)"
+    width={{ custom: avatarSize }}
+  >
+    <Box
+      as={ImgixImage}
+      borderRadius={avatarSize / 2}
+      height={{ custom: avatarSize }}
+      source={{ uri: avatarUrl }}
+      width={{ custom: avatarSize }}
+      size={200}
+    />
+  </Box>
+)}
+```
+
+### In Suggestions
+
+```typescript src/handlers/ens.ts
+const suggestion = [
+  {
+    address: address,
+    color: profileUtils.addressHashedColorIndex(recipient),
+    ens: true,
+    image: avatar?.imageUrl,
+    network: 'mainnet',
+    nickname: ens,
+    uniqueId: address,
+  },
+];
+```
+
+Suggestions show:
+- ENS name as nickname
+- Avatar image if available
+- Fallback to generated color
+- Ethereum address
+
+### In Contact Lists
+
+Contacts with ENS names display their avatars automatically when resolved.
+
+## Updating Avatars
+
+Change your avatar at any time:
+
+<Steps>
+  <Step title="Navigate to ENS Settings">
+    Open your ENS name from the profile or NFT collection.
+  </Step>
+  
+  <Step title="Edit Avatar Record">
+    Select a new NFT or provide a new image URL.
+  </Step>
+  
+  <Step title="Confirm Update">
+    Submit the transaction to update the avatar record.
+    
+    ```typescript src/handlers/ens.ts
+    estimateENSSetTextGasLimit({
+      name,
+      ownerAddress,
+      records: { avatar: newAvatarUrl },
+    });
+    ```
+  </Step>
+</Steps>
+
+## Avatar Metadata
+
+Avatar metadata is stored in React state:
+
+```typescript src/components/ens-registration/RegistrationAvatar/RegistrationAvatar.tsx
+export const avatarMetadataAtom = atom<{
+  uri?: string;
+  // ... other metadata
+}>({ key: 'avatarMetadata' });
+```
+
+This allows:
+- Preview before committing
+- Temporary avatar selection
+- Rollback on cancel
+
+## SVG Avatars
+
+ENS NFT avatars are SVG by default:
+
+```typescript src/handlers/ens.ts
+const { highResUrl: imageUrl, lowResUrl } = handleNFTImages({
+  originalUrl: imageUrl_,
+  previewUrl: undefined,
+  mimeType: MimeType.SVG,
+});
+```
+
+SVG metadata:
+- Dynamically generated
+- Based on ENS name
+- Unique color scheme
+- Hosted by ENS metadata service
+
+Default ENS avatar URL:
+```
+https://metadata.ens.domains/mainnet/[contract]/[tokenId]/image
+```
+
+<Note>
+ENS NFTs have built-in SVG avatars even without setting a custom avatar. The SVG is generated from the name itself.
+</Note>
+
+## Fallback Behavior
+
+When avatars fail to load:
+
+1. Try cached image from local storage
+2. Show ENS-generated SVG avatar
+3. Display color-based placeholder
+4. Show wallet address initials
+
+```typescript src/handlers/ens.ts
+catch (err) {
+  // Fallback to storage images
+  const data = await getENSData(imageType, ensName);
+  imageUrl = data?.imageUrl as string;
+}
+```
+
+## Performance Optimization
+
+- **Lazy loading**: Avatars load on demand
+- **Prefetching**: Predictive loading for suggestions
+- **Size optimization**: Request appropriate image sizes
+- **Format selection**: WebP/AVIF when supported
+- **CDN caching**: Imgix CDN for global delivery
+
+## Common Avatar URLs
+
+### IPFS
+```
+ipfs://QmXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+```
+
+### IPFS Gateway
+```
+https://cloudflare-ipfs.com/ipfs/QmXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+```
+
+### NFT Avatar
+```
+eip155:1/erc721:0xb47e3cd837ddf8e4c57f05d70ab865de6e193bbb/1
+```
+
+### Standard URL
+```
+https://example.com/avatar.png
+```

@@ -1,0 +1,547 @@
+---
+title: Modal Components
+description: Modal overlays and loading states for blocking user interactions
+---
+
+Rainbow provides modal components for presenting blocking overlays, loading states, and confirmation dialogs.
+
+## LoadingOverlay
+
+A full-screen modal overlay with a loading indicator and optional title.
+
+### Props
+
+<ParamField path="title" type="string">
+  Optional text to display below the spinner
+</ParamField>
+
+<ParamField path="paddingTop" type="number" default="0">
+  Top padding offset for the overlay
+</ParamField>
+
+<ParamField path="style" type="StyleProp<ViewStyle>">
+  Additional styles for the container
+</ParamField>
+
+### Usage
+
+```typescript
+import { LoadingOverlay } from '@/components/modal/LoadingOverlay';
+import { useState } from 'react';
+
+function MyComponent() {
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleAction = async () => {
+    setIsLoading(true);
+    try {
+      await performAsyncOperation();
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <>
+      <MyContent onAction={handleAction} />
+      {isLoading && <LoadingOverlay title="Processing..." />}
+    </>
+  );
+}
+```
+
+### With Animation
+
+```typescript
+import { LoadingOverlay } from '@/components/modal/LoadingOverlay';
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
+
+function AnimatedLoading({ visible, title }) {
+  if (!visible) return null;
+
+  return (
+    <Animated.View entering={FadeIn} exiting={FadeOut}>
+      <LoadingOverlay title={title} />
+    </Animated.View>
+  );
+}
+```
+
+### Platform-Specific Behavior
+
+The LoadingOverlay renders differently on iOS and Android:
+
+- **iOS**: Uses BlurView for a frosted glass effect
+- **Android**: Uses solid background color with spinner
+
+```typescript
+// iOS: BlurView with ActivityIndicator
+// Android: Solid background with Spinner
+
+<LoadingOverlay title="Loading wallet..." />
+```
+
+## Implementation Details
+
+The LoadingOverlay component:
+
+```typescript
+import React from 'react';
+import { StyleSheet } from 'react-native';
+import { BlurView } from 'react-native-blur-view';
+import { Box, Text } from '@/design-system';
+import ActivityIndicator from '@/components/ActivityIndicator';
+import Spinner from '@/components/Spinner';
+import { IS_ANDROID, IS_IOS } from '@/env';
+
+type LoadingOverlayProps = {
+  title?: string;
+  paddingTop?: number;
+  style?: StyleProp<ViewStyle>;
+};
+
+const LoadingOverlay = ({ title, paddingTop = 0, style }: LoadingOverlayProps) => {
+  return (
+    <Box 
+      alignItems="center" 
+      justifyContent="center" 
+      style={[styles.container, { paddingTop }, style]}
+    >
+      {/* Backdrop */}
+      <Animated.View
+        entering={FadeIn}
+        exiting={FadeOut}
+        style={[StyleSheet.absoluteFillObject, styles.backdrop]}
+      />
+      
+      {/* Loading box */}
+      <Box
+        alignItems="center"
+        borderRadius={20}
+        justifyContent="center"
+        overflow="hidden"
+        padding="20px"
+        style={styles.loadingBox}
+      >
+        <Box alignItems="center" flexDirection="row" justifyContent="center" zIndex={2}>
+          {IS_ANDROID ? <Spinner color={colors.blueGreyDark} /> : <ActivityIndicator />}
+          {title ? (
+            <Text color="labelPrimary" size="20pt" weight="semibold" style={styles.title}>
+              {title}
+            </Text>
+          ) : null}
+        </Box>
+        
+        {IS_IOS ? (
+          <BlurView 
+            blurIntensity={40} 
+            blurStyle={isDarkMode ? 'dark' : 'light'} 
+            style={styles.blur} 
+          />
+        ) : null}
+      </Box>
+    </Box>
+  );
+};
+```
+
+## Common Patterns
+
+### Async Operation with Loading
+
+```typescript
+import { LoadingOverlay } from '@/components/modal/LoadingOverlay';
+import { useState } from 'react';
+import * as p from '@/screens/Portal';
+
+function useAsyncOperation() {
+  const [isLoading, setIsLoading] = useState(false);
+
+  const execute = async (operation: () => Promise<void>, loadingText: string) => {
+    setIsLoading(true);
+    try {
+      await operation();
+    } catch (error) {
+      console.error('Operation failed:', error);
+      // Handle error
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const LoadingComponent = () => (
+    isLoading ? <LoadingOverlay title="Processing..." /> : null
+  );
+
+  return { execute, LoadingComponent };
+}
+
+// Usage
+function MyComponent() {
+  const { execute, LoadingComponent } = useAsyncOperation();
+
+  const handleSend = () => {
+    execute(
+      async () => {
+        await sendTransaction();
+      },
+      'Sending transaction...'
+    );
+  };
+
+  return (
+    <>
+      <MyContent onSend={handleSend} />
+      <LoadingComponent />
+    </>
+  );
+}
+```
+
+### Multi-Step Loading
+
+```typescript
+import { LoadingOverlay } from '@/components/modal/LoadingOverlay';
+import { useState } from 'react';
+
+function MultiStepProcess() {
+  const [loadingStep, setLoadingStep] = useState<string | null>(null);
+
+  const handleProcess = async () => {
+    try {
+      setLoadingStep('Preparing transaction...');
+      await prepareTransaction();
+
+      setLoadingStep('Signing...');
+      await signTransaction();
+
+      setLoadingStep('Broadcasting...');
+      await broadcastTransaction();
+
+      setLoadingStep('Confirming...');
+      await waitForConfirmation();
+
+      setLoadingStep(null);
+    } catch (error) {
+      setLoadingStep(null);
+      // Handle error
+    }
+  };
+
+  return (
+    <>
+      <MyContent onProcess={handleProcess} />
+      {loadingStep && <LoadingOverlay title={loadingStep} />}
+    </>
+  );
+}
+```
+
+### Loading with Timeout
+
+```typescript
+import { LoadingOverlay } from '@/components/modal/LoadingOverlay';
+import { useState, useEffect } from 'react';
+
+function useLoadingWithTimeout(timeoutMs: number = 30000) {
+  const [isLoading, setIsLoading] = useState(false);
+  const [timedOut, setTimedOut] = useState(false);
+
+  useEffect(() => {
+    if (!isLoading) {
+      setTimedOut(false);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setTimedOut(true);
+      setIsLoading(false);
+    }, timeoutMs);
+
+    return () => clearTimeout(timer);
+  }, [isLoading, timeoutMs]);
+
+  return { isLoading, setIsLoading, timedOut };
+}
+
+// Usage
+function MyComponent() {
+  const { isLoading, setIsLoading, timedOut } = useLoadingWithTimeout(30000);
+
+  const handleAction = async () => {
+    setIsLoading(true);
+    try {
+      await longRunningOperation();
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (timedOut) {
+      showError('Operation timed out');
+    }
+  }, [timedOut]);
+
+  return (
+    <>
+      <MyContent onAction={handleAction} />
+      {isLoading && <LoadingOverlay title="Loading..." />}
+    </>
+  );
+}
+```
+
+## Modal Confirmation Dialogs
+
+While there's no dedicated modal dialog component, you can combine Portal sheets with LoadingOverlay:
+
+### Confirmation Modal
+
+```typescript
+import * as p from '@/screens/Portal';
+import { Box, Stack, Text } from '@/design-system';
+import { SheetActionButtonRow } from '@/components/sheet/sheet-action-buttons/SheetActionButtonRow';
+import SheetActionButton from '@/components/sheet/sheet-action-buttons/SheetActionButton';
+import { LoadingOverlay } from '@/components/modal/LoadingOverlay';
+import { useState } from 'react';
+
+function ConfirmationModal({ 
+  title, 
+  message, 
+  onConfirm, 
+  confirmLabel = 'Confirm',
+  cancelLabel = 'Cancel'
+}) {
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  const handleConfirm = async () => {
+    setIsProcessing(true);
+    try {
+      await onConfirm();
+      p.close();
+    } catch (error) {
+      // Handle error
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  return (
+    <>
+      <Box padding="20px">
+        <Stack space="20px">
+          <Stack space="8px">
+            <Text size="20pt" weight="bold" color="label" align="center">
+              {title}
+            </Text>
+            <Text size="15pt" weight="regular" color="labelSecondary" align="center">
+              {message}
+            </Text>
+          </Stack>
+
+          <SheetActionButtonRow>
+            <SheetActionButton
+              label={cancelLabel}
+              onPress={p.close}
+              color="#8E8E93"
+              disabled={isProcessing}
+            />
+            <SheetActionButton
+              label={confirmLabel}
+              onPress={handleConfirm}
+              color="#007AFF"
+              size="big"
+              disabled={isProcessing}
+            />
+          </SheetActionButtonRow>
+        </Stack>
+      </Box>
+      
+      {isProcessing && <LoadingOverlay title="Processing..." />}
+    </>
+  );
+}
+
+// Usage
+function openConfirmation() {
+  p.open(
+    () => (
+      <ConfirmationModal
+        title="Delete Wallet?"
+        message="This action cannot be undone."
+        onConfirm={async () => {
+          await deleteWallet();
+        }}
+        confirmLabel="Delete"
+      />
+    ),
+    { sheetHeight: 300 }
+  );
+}
+```
+
+### Alert Modal
+
+```typescript
+import * as p from '@/screens/Portal';
+import { Box, Stack, Text } from '@/design-system';
+import SheetActionButton from '@/components/sheet/sheet-action-buttons/SheetActionButton';
+
+function AlertModal({ title, message, buttonLabel = 'OK' }) {
+  return (
+    <Box padding="20px">
+      <Stack space="20px">
+        <Stack space="8px">
+          <Text size="20pt" weight="bold" color="label" align="center">
+            {title}
+          </Text>
+          <Text size="15pt" weight="regular" color="labelSecondary" align="center">
+            {message}
+          </Text>
+        </Stack>
+
+        <SheetActionButton
+          label={buttonLabel}
+          onPress={p.close}
+          color="#007AFF"
+          size="big"
+        />
+      </Stack>
+    </Box>
+  );
+}
+
+// Usage
+function showAlert(title: string, message: string) {
+  p.open(
+    () => <AlertModal title={title} message={message} />,
+    { sheetHeight: 250 }
+  );
+}
+
+showAlert('Success', 'Your transaction was successful!');
+```
+
+## Best Practices
+
+### 1. Always Provide Loading Feedback
+
+Show loading state for async operations:
+
+```typescript
+// ✅ Good - shows loading state
+const handleAction = async () => {
+  setIsLoading(true);
+  try {
+    await operation();
+  } finally {
+    setIsLoading(false);
+  }
+};
+
+// ❌ Avoid - no loading feedback
+const handleAction = async () => {
+  await operation();
+};
+```
+
+### 2. Use Descriptive Loading Messages
+
+Tell users what's happening:
+
+```typescript
+// ✅ Good - descriptive
+<LoadingOverlay title="Sending transaction..." />
+
+// ❌ Avoid - generic
+<LoadingOverlay title="Loading..." />
+```
+
+### 3. Handle Errors Gracefully
+
+```typescript
+const handleAction = async () => {
+  setIsLoading(true);
+  try {
+    await operation();
+  } catch (error) {
+    showAlert('Error', error.message);
+  } finally {
+    setIsLoading(false);
+  }
+};
+```
+
+### 4. Don't Block UI Unnecessarily
+
+Use loading overlays sparingly:
+
+```typescript
+// ✅ Good - loading overlay for critical operations
+const sendTransaction = async () => {
+  setIsLoading(true);
+  await send();
+  setIsLoading(false);
+};
+
+// ❌ Avoid - blocking UI for background operations
+const refreshData = async () => {
+  setIsLoading(true); // Don't block UI for refreshes
+  await fetchData();
+  setIsLoading(false);
+};
+
+// ✅ Better - use inline loading indicator
+const refreshData = async () => {
+  setIsRefreshing(true);
+  await fetchData();
+  setIsRefreshing(false);
+};
+```
+
+### 5. Cleanup Loading State
+
+Always cleanup loading state, even on unmount:
+
+```typescript
+import { useEffect, useRef } from 'react';
+
+function useAsyncOperation() {
+  const [isLoading, setIsLoading] = useState(false);
+  const isMounted = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
+  const execute = async (operation: () => Promise<void>) => {
+    setIsLoading(true);
+    try {
+      await operation();
+    } finally {
+      if (isMounted.current) {
+        setIsLoading(false);
+      }
+    }
+  };
+
+  return { isLoading, execute };
+}
+```
+
+## TouchableBackdrop
+
+Used internally by LoadingOverlay on iOS to block touches:
+
+```typescript
+import TouchableBackdrop from '@/components/TouchableBackdrop';
+
+// Blocks all touch events
+<TouchableBackdrop disabled={false} />
+
+// Allows touch events to pass through
+<TouchableBackdrop disabled />
+```

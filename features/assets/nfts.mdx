@@ -1,0 +1,491 @@
+---
+title: NFT Management
+description: View, organize, and manage NFT collections in Rainbow Wallet
+---
+
+Rainbow provides comprehensive NFT (Non-Fungible Token) management with collection organization, metadata display, and multi-chain support.
+
+## NFT Architecture
+
+Rainbow uses a specialized store for NFT data:
+
+```typescript
+// From src/state/nfts/types.ts
+interface NftsState {
+  collections: Map<CollectionId, Collection>;
+  nftsByCollection: Map<CollectionId, Map<UniqueId, UniqueAsset>>;
+  pagination: PaginationInfo | null;
+  
+  getNftCollections: () => Map<CollectionId, Collection> | null;
+  getNftsByCollection: (collectionId: CollectionId) => Map<UniqueId, UniqueAsset> | null;
+  getNftByUniqueId: (collectionId: CollectionId, uniqueId: UniqueId) => UniqueAsset | null;
+}
+
+type Collection = {
+  id: CollectionId;           // Unique collection identifier
+  name: string;               // Collection name
+  imageUrl: string | null;    // Collection banner/icon
+  totalCount: string;         // Total NFTs in collection
+};
+```
+
+### NFT Data Structure
+
+```typescript
+type UniqueAsset = {
+  id: string;                    // Token ID
+  uniqueId: string;              // Global unique ID
+  collection: {
+    id: string;
+    name: string;
+    imageUrl?: string;
+  };
+  
+  // NFT Metadata
+  name: string;                  // NFT name
+  description?: string;          // Description
+  imageUrl?: string;             // NFT image
+  animationUrl?: string;         // Video/animation
+  
+  // On-chain data
+  contractAddress: string;       // NFT contract
+  tokenId: string;               // Token ID
+  chainId: ChainId;             // Network
+  
+  // Traits/attributes
+  traits?: Array<{
+    trait_type: string;
+    value: string | number;
+  }>;
+  
+  // Marketplace data
+  lastSalePrice?: {
+    amount: string;
+    currency: string;
+  };
+  floorPrice?: {
+    amount: string;
+    currency: string;
+  };
+};
+```
+
+## Viewing NFTs
+
+### Collection View
+
+NFTs are organized by collection:
+
+<Steps>
+  <Step title="Collections List">
+    Main view shows all collections:
+    - Collection name and icon
+    - Number of NFTs owned
+    - Floor price (if available)
+    - Total collection value
+  </Step>
+  
+  <Step title="Collection Details">
+    Tap collection to see:
+    - All NFTs in that collection
+    - Grid or list view
+    - Individual NFT details
+    - Collection statistics
+  </Step>
+  
+  <Step title="NFT Details">
+    Tap individual NFT for:
+    - Full-size image/video
+    - Metadata and traits
+    - Ownership history
+    - Actions (send, view on OpenSea)
+  </Step>
+</Steps>
+
+### Collection Organization
+
+Collections can be:
+
+```typescript
+// From src/state/nfts/types.ts
+interface OpenCollectionsState {
+  openCollections: Record<CollectionId, boolean>;
+  insertionOrder: CollectionId[];
+  
+  toggleCollection: (collectionId: CollectionId) => void;
+  isCollectionOpen: (collectionId: CollectionId) => boolean;
+  setCollectionOpen: (collectionId: CollectionId, isOpen: boolean) => void;
+}
+```
+
+- **Expanded/Collapsed**: Toggle visibility
+- **Reordered**: Drag to rearrange (coming soon)
+- **Favorited**: Pin important collections
+- **Hidden**: Hide unwanted collections
+
+## Fetching NFTs
+
+NFTs are fetched with pagination:
+
+```typescript
+type NftParams = {
+  walletAddress: Address | string;
+  limit: number;              // NFTs per page
+  pageKey: string | null;     // Pagination cursor
+  collectionId?: CollectionId; // Specific collection
+};
+
+type PaginationInfo = {
+  pageKey: string | null;     // Current page cursor
+  hasNext: boolean;           // More NFTs available
+  total_elements?: number;    // Total NFT count
+};
+```
+
+### Fetching Process
+
+<Steps>
+  <Step title="Initial Load">
+    First page of NFTs loaded:
+    - Default limit: 50 NFTs
+    - Sorted by collection
+    - Most recent first
+  </Step>
+  
+  <Step title="Parse Response">
+    NFTs processed:
+    - Grouped by collection
+    - Metadata enriched
+    - Images preloaded
+    - Stored in maps
+  </Step>
+  
+  <Step title="Pagination">
+    Load more as needed:
+    ```typescript
+    fetchNextNftCollectionPage: async () => {
+      const { pagination } = get();
+      
+      if (!pagination?.hasNext) return;
+      
+      // Fetch next page
+      const nextPage = await fetchNfts({
+        walletAddress,
+        limit: 50,
+        pageKey: pagination.pageKey,
+      });
+      
+      // Merge with existing
+      mergeNftsIntoState(nextPage);
+    }
+    ```
+  </Step>
+  
+  <Step title="Collection Expansion">
+    Load specific collection:
+    ```typescript
+    fetchNftCollection: async (collectionId: CollectionId, force?: boolean) => {
+      // Check if already fetched
+      if (!force && get().fetchedCollections[collectionId]) {
+        return;
+      }
+      
+      // Fetch all NFTs in collection
+      const nfts = await fetchNfts({
+        walletAddress,
+        collectionId,
+        limit: 100,
+      });
+      
+      // Update state
+      get().mergeNfts(nfts);
+    }
+    ```
+  </Step>
+</Steps>
+
+## NFT Display Features
+
+### Image Rendering
+
+- **IPFS Support**: Resolves IPFS URLs
+- **Video/Animation**: Plays animations inline
+- **High Resolution**: Full-size image viewing
+- **Lazy Loading**: Images loaded as scrolled
+
+### Metadata Display
+
+<Tabs>
+  <Tab title="Basic Info">
+    Always shown:
+    - NFT name
+    - Collection name
+    - Token ID
+    - Description
+  </Tab>
+  
+  <Tab title="Traits">
+    If available:
+    - All trait types
+    - Trait values
+    - Rarity indicators
+    - Trait floor prices
+  </Tab>
+  
+  <Tab title="History">
+    On-chain data:
+    - Last sale price
+    - Purchase date
+    - Previous owners
+    - Transfer history
+  </Tab>
+  
+  <Tab title="Market Data">
+    From marketplaces:
+    - Collection floor price
+    - Estimated value
+    - Trading volume
+    - Listing status
+  </Tab>
+</Tabs>
+
+## NFT Actions
+
+Actions available for each NFT:
+
+<CardGroup cols={2}>
+  <Card title="Send" icon="paper-plane">
+    Transfer NFT to another wallet:
+    - Enter recipient address
+    - Confirm gas fees
+    - Sign transaction
+    - NFT transferred on-chain
+  </Card>
+  
+  <Card title="View on OpenSea" icon="arrow-up-right-from-square">
+    Open NFT marketplace:
+    - Direct link to OpenSea
+    - See listing details
+    - Purchase if listed
+    - View collection stats
+  </Card>
+  
+  <Card title="Share" icon="share-nodes">
+    Share NFT:
+    - Generate shareable link
+    - Share image
+    - Copy contract/token ID
+  </Card>
+  
+  <Card title="Hide" icon="eye-slash">
+    Hide unwanted NFTs:
+    - Spam/scam NFTs
+    - Unwanted airdrops
+    - Can unhide later
+  </Card>
+</CardGroup>
+
+## Multi-Chain NFTs
+
+Rainbow supports NFTs across multiple chains:
+
+- **Ethereum** (Most NFT collections)
+- **Polygon** (Lower gas fees)
+- **Arbitrum** (L2 NFTs)
+- **Optimism** (L2 NFTs)
+- **Base** (Emerging ecosystem)
+- **Zora** (Creator-focused)
+
+### Cross-Chain Display
+
+NFTs shown with chain indicator:
+- Chain logo badge
+- Network name
+- Filter by chain
+- Per-chain collection stats
+
+## Showcase Feature
+
+Curate featured NFTs:
+
+```typescript
+type CollectionName = string | 'Showcase';
+
+// Special "Showcase" collection
+const showcaseCollection: Collection = {
+  id: 'showcase',
+  name: 'Showcase',
+  imageUrl: null,
+  totalCount: '0', // Dynamic
+};
+```
+
+### Showcase Features
+
+- **Handpicked NFTs**: Select favorite NFTs
+- **Profile Display**: Shows in wallet profile
+- **Any Collection**: Mix NFTs from different collections
+- **Reorderable**: Arrange in preferred order
+
+<Steps>
+  <Step title="Add to Showcase">
+    From NFT details:
+    - Tap "Add to Showcase"
+    - NFT added to featured collection
+    - Appears in profile
+  </Step>
+  
+  <Step title="Arrange Showcase">
+    Organize display:
+    - Drag to reorder
+    - Remove from showcase
+    - Up to 10 NFTs recommended
+  </Step>
+  
+  <Step title="View in Profile">
+    Showcase visible:
+    - On your profile
+    - In wallet connect
+    - Shareable link
+  </Step>
+</Steps>
+
+## Spam NFT Management
+
+Unwanted NFTs are common:
+
+### Spam Detection
+
+Automatic spam indicators:
+- Unknown collections
+- Suspicious metadata
+- Mass airdrops
+- Scam/phishing attempts
+
+### Hiding Spam
+
+```typescript
+// Hide individual NFT or entire collection
+hideNft: (collectionId: CollectionId, uniqueId?: UniqueId) => {
+  if (uniqueId) {
+    // Hide specific NFT
+    const hidden = get().hiddenNfts || new Set();
+    hidden.add(uniqueId);
+    set({ hiddenNfts: hidden });
+  } else {
+    // Hide entire collection
+    const hidden = get().hiddenCollections || new Set();
+    hidden.add(collectionId);
+    set({ hiddenCollections: hidden });
+  }
+}
+```
+
+<Warning>
+  **Scam NFTs often contain:**
+  - Phishing links in description
+  - Fake support contact info
+  - Malicious approval requests
+  - Social engineering tactics
+  
+  Never click links in suspicious NFT metadata!
+</Warning>
+
+## Performance Optimizations
+
+### Image Loading
+
+- **Progressive Loading**: Low-res preview first
+- **Caching**: Images cached locally
+- **Lazy Loading**: Only load visible NFTs
+- **Thumbnail Generation**: Smaller previews for lists
+
+### Data Fetching
+
+- **Pagination**: Load NFTs in batches
+- **Collection-Based**: Fetch by collection when expanded
+- **Background Refresh**: Update in background
+- **Stale-While-Revalidate**: Show cached, update behind scenes
+
+### State Management
+
+```typescript
+// Efficient Map-based storage
+nftsByCollection: Map<CollectionId, Map<UniqueId, UniqueAsset>>
+
+// O(1) lookups
+getNftByUniqueId: (collectionId: CollectionId, uniqueId: UniqueId) => {
+  return get().nftsByCollection.get(collectionId)?.get(uniqueId) || null;
+}
+```
+
+## NFT Metadata Standards
+
+Rainbow supports multiple metadata standards:
+
+### ERC-721
+Standard NFT:
+```json
+{
+  "name": "NFT Name",
+  "description": "Description",
+  "image": "ipfs://...",
+  "attributes": [
+    {
+      "trait_type": "Background",
+      "value": "Blue"
+    }
+  ]
+}
+```
+
+### ERC-1155
+Multi-edition NFT:
+```json
+{
+  "name": "Edition Name",
+  "decimals": 0,
+  "image": "https://...",
+  "properties": {
+    "edition": "1 of 100"
+  }
+}
+```
+
+### IPFS Resolution
+
+Automatic IPFS gateway resolution:
+```typescript
+const resolveIpfsUrl = (ipfsUrl: string): string => {
+  if (ipfsUrl.startsWith('ipfs://')) {
+    return ipfsUrl.replace('ipfs://', 'https://ipfs.io/ipfs/');
+  }
+  return ipfsUrl;
+};
+```
+
+## Collection Statistics
+
+Per-collection stats shown:
+
+- **Total Owned**: Number of NFTs you own
+- **Total Supply**: Total NFTs in collection
+- **Floor Price**: Lowest listed price
+- **Your Holdings Value**: Estimated value
+- **Top Trait**: Most valuable trait you own
+
+## Related Features
+
+<CardGroup cols={2}>
+  <Card title="Collectibles" icon="gem" href="/features/assets/collectibles">
+    Digital collectibles and poaps
+  </Card>
+  
+  <Card title="Assets Overview" icon="coins" href="/features/assets/overview">
+    All asset management features
+  </Card>
+  
+  <Card title="Token List" icon="list" href="/features/assets/token-list">
+    Managing fungible tokens
+  </Card>
+</CardGroup>

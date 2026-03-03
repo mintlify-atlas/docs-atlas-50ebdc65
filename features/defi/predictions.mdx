@@ -1,0 +1,600 @@
+---
+title: 'Prediction Markets (Polymarket)'
+description: 'Bet on real-world events using Polymarket prediction markets'
+---
+
+Rainbow Wallet integrates with Polymarket to let you bet on real-world events, from politics and sports to crypto and culture.
+
+## Overview
+
+Polymarket is a decentralized prediction market platform where you can:
+
+- **Bet on Events**: Trade on the outcome of real-world events
+- **Sports Betting**: Bet on game outcomes, player props, and more
+- **Politics**: Predict election results and policy outcomes
+- **Crypto**: Trade on token launches and protocol developments
+- **Live Markets**: Real-time odds and live event tracking
+
+## Account Setup
+
+Polymarket uses a proxy wallet system on Polygon:
+
+<Steps>
+  <Step title="Derive Proxy Address">
+    A deterministic proxy wallet is created from your main wallet.
+    
+    ```typescript src/features/polymarket/utils/deriveSafeWalletAddress.ts
+    export function deriveSafeWalletAddress(
+      ownerAddress: string
+    ): Address {
+      // Creates deterministic Safe wallet address
+      return computeProxyAddress({
+        owner: ownerAddress,
+        saltNonce: DEFAULT_SALT_NONCE,
+      });
+    }
+    ```
+  </Step>
+  
+  <Step title="Deposit USDC">
+    Bridge USDC to your Polymarket proxy wallet on Polygon.
+    
+    ```typescript src/features/polymarket/depositConfig.ts
+    export const depositConfig = {
+      chain: ChainId.polygon,
+      token: 'USDC',
+      destination: 'Polymarket Proxy',
+    };
+    ```
+  </Step>
+  
+  <Step title="Deploy Proxy (Automatic)">
+    The proxy wallet is deployed on your first trade.
+  </Step>
+</Steps>
+
+<Info>
+The proxy wallet is a Gnosis Safe that's controlled by your main wallet. It's deployed automatically when you place your first bet.
+</Info>
+
+## Account Balance
+
+Your Polymarket balance is tracked:
+
+```typescript src/features/polymarket/stores/polymarketBalanceStore.ts
+export const polymarketBalanceStore = createQueryStore({
+  fetcher: async ({ proxyAddress }) => {
+    const balance = await getUSDCBalance(proxyAddress);
+    return { balance };
+  },
+  params: {
+    proxyAddress: $ => $(usePolymarketClients).proxyAddress,
+  },
+  staleTime: time.seconds(30),
+});
+```
+
+Account summary:
+- **Available**: USDC ready to bet
+- **In Positions**: Value locked in active bets
+- **Claimable**: Winnings from resolved markets
+
+## Browsing Events
+
+Browse prediction markets by category:
+
+### Event Categories
+
+```typescript src/features/polymarket/stores/usePolymarketCategoryStore.ts
+const categories = [
+  'Politics',
+  'Sports',
+  'Crypto',
+  'Pop Culture',
+  'Business',
+  'Science',
+];
+```
+
+### Event Display
+
+```typescript src/features/polymarket/screens/polymarket-browse-events-screen/PolymarketBrowseEventsScreen.tsx
+<PolymarketEventsList
+  events={events}
+  onSelectEvent={navigateToEvent}
+/>
+```
+
+Each event shows:
+- Event title and description
+- Markets available
+- Total volume
+- Expiration date
+- Featured image
+
+## Market Types
+
+Polymarket supports different market formats:
+
+### Binary Markets
+
+Yes/No outcomes:
+
+```typescript
+type BinaryMarket = {
+  outcomes: ['Yes', 'No'];
+  clobTokenIds: [string, string];
+};
+```
+
+Example: "Will BTC hit $100k by 2024?"
+- Yes: 65¢ (65% probability)
+- No: 35¢ (35% probability)
+
+### Multiple Choice
+
+More than two outcomes:
+
+```typescript
+type MultipleChoiceMarket = {
+  outcomes: string[];  // e.g., ['Team A', 'Team B', 'Draw']
+  clobTokenIds: string[];
+};
+```
+
+### Sports Markets
+
+Specialized sports betting:
+
+```typescript src/features/polymarket/utils/sports.ts
+type SportsMarket = {
+  gameId: string;
+  teams: TeamInfo[];
+  betType: 'moneyline' | 'spread' | 'total' | 'prop';
+  outcomes: string[];
+};
+```
+
+Supported sports:
+- NFL, NBA, MLB, NHL
+- Soccer (EPL, Champions League, etc.)
+- Tennis, UFC, Cricket
+- Esports (CS2, Dota 2, Valorant)
+
+## Placing a Bet
+
+The bet placement workflow:
+
+<Steps>
+  <Step title="Select Market">
+    Choose an event and market to bet on.
+    
+    ```typescript src/features/polymarket/screens/polymarket-event-screen/PolymarketEventScreen.tsx
+    <MarketRow
+      market={market}
+      onPress={() => navigateToNewPosition(market)}
+    />
+    ```
+  </Step>
+  
+  <Step title="Choose Outcome">
+    Select which outcome you want to bet on.
+    
+    ```typescript src/features/polymarket/components/PolymarketOutcomeCard.tsx
+    <PolymarketOutcomeCard
+      outcome={outcome}
+      price={market.outcomePrices[outcomeIndex]}
+      onPress={() => selectOutcome(outcomeIndex)}
+    />
+    ```
+  </Step>
+  
+  <Step title="Enter Bet Amount">
+    Specify how much USDC to bet.
+    
+    ```typescript src/features/polymarket/screens/polymarket-new-position-sheet/PolymarketNewPositionSheet.tsx
+    <AmountInputCard
+      availableBalance={availableBalance}
+      onAmountChange={setBuyAmount}
+    />
+    ```
+  </Step>
+  
+  <Step title="Review Order Execution">
+    See the estimated outcome based on current order book.
+    
+    ```typescript src/features/polymarket/screens/polymarket-new-position-sheet/utils/calculateOrderExecution.ts
+    const execution = calculateOrderExecution({
+      tokenId,
+      amount: buyAmount,
+      orderBook,
+    });
+    ```
+    
+    Shows:
+    - Average price
+    - Shares received
+    - Potential profit
+    - Trading fee
+    - Price impact
+  </Step>
+  
+  <Step title="Place Bet">
+    Submit the market buy order.
+    
+    ```typescript src/features/polymarket/utils/orders.ts
+    const orderResult = await marketBuyToken({
+      tokenId,
+      amount: amountToBuy,
+      price: worstPrice,  // Max price willing to pay
+    });
+    ```
+  </Step>
+</Steps>
+
+## Order Execution
+
+Orders are executed against the Polymarket CLOB (Central Limit Order Book):
+
+```typescript src/features/polymarket/screens/polymarket-new-position-sheet/utils/calculateOrderExecution.ts
+export function calculateOrderExecution({
+  tokenId,
+  amount,
+  orderBook,
+}: {
+  tokenId: string;
+  amount: string;
+  orderBook: OrderBook;
+}) {
+  const asks = orderBook[tokenId]?.asks || [];
+  
+  let remainingAmount = Number(amount);
+  let totalCost = 0;
+  let totalShares = 0;
+  
+  for (const ask of asks) {
+    if (remainingAmount <= 0) break;
+    
+    const fillSize = Math.min(remainingAmount, ask.size);
+    totalCost += fillSize * ask.price;
+    totalShares += fillSize;
+    remainingAmount -= fillSize;
+  }
+  
+  return {
+    averagePrice: totalCost / totalShares,
+    shares: totalShares,
+    worstPrice: asks[asks.length - 1]?.price,
+    bestPrice: asks[0]?.price,
+  };
+}
+```
+
+### Fill-or-Kill Orders
+
+Polymarket uses FOK (Fill-or-Kill) orders:
+
+```typescript src/features/polymarket/utils/orders.ts
+export async function marketBuyToken({
+  tokenId,
+  amount,
+  price,
+}: {
+  tokenId: string;
+  amount: string;
+  price: string;
+}) {
+  const orderArgs = {
+    tokenId,
+    amount,
+    price,
+    side: 'BUY',
+    feeRateBps: '0',  // No fee for market orders
+  };
+  
+  return await clobClient.createMarketOrder(orderArgs);
+}
+```
+
+<Info>
+FOK orders either execute completely or not at all. If there's insufficient liquidity, the order fails and you keep your USDC.
+</Info>
+
+## Managing Positions
+
+### View Positions
+
+```typescript src/features/polymarket/stores/polymarketPositionsStore.ts
+export const usePolymarketPositionsStore = createQueryStore({
+  fetcher: fetchPolymarketPositions,
+  params: { address: $ => $(usePolymarketClients).proxyAddress },
+  staleTime: time.seconds(30),
+});
+```
+
+Position data:
+
+```typescript src/features/polymarket/types.ts
+type PolymarketPosition = {
+  eventId: string;
+  marketSlug: string;
+  outcome: string;
+  size: string;           // Shares owned
+  averagePrice: string;   // Average buy price
+  currentPrice: string;   // Current market price
+  currentValue: string;   // size * currentPrice
+  unrealizedPnl: string;  // Current profit/loss
+  redeemable: boolean;    // Can redeem for $1/share?
+};
+```
+
+### Sell Position
+
+Exit a position before market resolution:
+
+```typescript src/features/polymarket/screens/polymarket-sell-position-sheet/PolymarketSellPositionSheet.tsx
+<PolymarketSellPositionSheet
+  position={position}
+  market={market}
+/>
+```
+
+<Steps>
+  <Step title="Navigate to Position">
+    Open the position from your account or event screen.
+  </Step>
+  
+  <Step title="Enter Sell Amount">
+    Choose how many shares to sell (partial or full).
+  </Step>
+  
+  <Step title="Review Execution">
+    See estimated proceeds based on current bids.
+    
+    ```typescript src/features/polymarket/screens/polymarket-sell-position-sheet/utils/calculateSellExecution.ts
+    const execution = calculateSellExecution({
+      tokenId,
+      shares: sellAmount,
+      orderBook,
+    });
+    ```
+  </Step>
+  
+  <Step title="Execute Sell">
+    Submit market sell order.
+  </Step>
+</Steps>
+
+### Redeem Winnings
+
+After a market resolves, redeem winning positions:
+
+```typescript src/features/polymarket/utils/redeemPosition.ts
+export async function redeemPosition({
+  tokenId,
+  amount,
+}: {
+  tokenId: string;
+  amount: string;
+}) {
+  // Redeem conditional tokens for USDC
+  await conditionalTokensContract.redeemPositions({
+    tokenId,
+    amount,
+  });
+}
+```
+
+<Steps>
+  <Step title="Market Resolves">
+    Wait for the event to occur and market to resolve.
+  </Step>
+  
+  <Step title="Navigate to Position">
+    Open your winning position (shows as "Redeemable").
+  </Step>
+  
+  <Step title="Redeem">
+    Exchange shares for USDC (1 share = $1).
+    
+    ```typescript src/features/polymarket/screens/polymarket-redeem-position-sheet/PolymarketRedeemPositionSheet.tsx
+    <PolymarketRedeemPositionSheet
+      position={position}
+    />
+    ```
+  </Step>
+</Steps>
+
+## Live Sports
+
+Sports markets update with live game data:
+
+```typescript src/features/polymarket/stores/polymarketLiveGameStore.ts
+export const polymarketLiveGameStore = createQueryStore({
+  fetcher: async ({ gameId }) => {
+    const client = polymarketSportsWsClient;
+    return await client.subscribeToGame(gameId);
+  },
+  staleTime: time.seconds(10),  // Update every 10 seconds
+});
+```
+
+Live data:
+- Current score
+- Game clock/period
+- Recent plays
+- Line movements
+- Live odds updates
+
+### Live Scores
+
+```typescript src/features/polymarket/screens/polymarket-event-screen/components/GameBoxScore.tsx
+<GameBoxScore
+  teams={teams}
+  score={liveGame.score}
+  period={liveGame.period}
+  clock={liveGame.clock}
+/>
+```
+
+## Trading Fees
+
+Polymarket charges a small fee on winning positions:
+
+```typescript src/features/polymarket/utils/collectTradeFee.ts
+const TRADE_FEE_BPS = 200;  // 2%
+
+export function calculateTradeFee(profit: string): string {
+  return mulWorklet(profit, divWorklet(TRADE_FEE_BPS.toString(), '10000'));
+}
+```
+
+Fee structure:
+- **No fees on bets**: Free to enter positions
+- **2% fee on net profits**: Only charged on winnings
+- **No fee on losses**: No additional cost if you lose
+
+<Info>
+Fees are automatically deducted when you sell shares or redeem winnings. You only pay fees on profits.
+</Info>
+
+## Order Book
+
+Polymarket uses a CLOB (Central Limit Order Book):
+
+```typescript src/features/polymarket/stores/polymarketOrderBookStore.ts
+export const polymarketOrderBookStore = createQueryStore({
+  fetcher: async ({ tokenId }) => {
+    const client = getPolymarketClobDataClient();
+    return await client.getOrderBook({ tokenId });
+  },
+  staleTime: time.seconds(5),
+});
+```
+
+Order book data:
+
+```typescript
+type OrderBook = {
+  [tokenId: string]: {
+    bids: Array<{ price: number; size: number }>;  // Buy orders
+    asks: Array<{ price: number; size: number }>;  // Sell orders
+  };
+};
+```
+
+## Liquidity Checks
+
+The app checks liquidity before allowing trades:
+
+```typescript src/features/polymarket/screens/polymarket-new-position-sheet/hooks/useOrderValidation.ts
+export function useOrderValidation({ tokenId, amount }) {
+  const orderBook = usePolymarketOrderBookStore(
+    state => state.getData()?.[tokenId]
+  );
+  
+  const hasNoLiquidity = orderBook?.asks?.length === 0;
+  const totalLiquidity = orderBook?.asks?.reduce(
+    (sum, ask) => sum + ask.size,
+    0
+  );
+  const hasInsufficientLiquidity = totalLiquidity < Number(amount);
+  
+  return {
+    hasNoLiquidity,
+    hasInsufficientLiquidity,
+    canTrade: !hasNoLiquidity && !hasInsufficientLiquidity,
+  };
+}
+```
+
+Liquidity warnings:
+
+```typescript src/features/polymarket/components/PolymarketNoLiquidityCard.tsx
+<PolymarketNoLiquidityCard
+  title="No liquidity available"
+  description="This market doesn't have enough orders to fill your bet."
+/>
+```
+
+## Withdrawal
+
+Withdraw USDC from your Polymarket proxy wallet:
+
+<Steps>
+  <Step title="Navigate to Account">
+    Open your Polymarket account screen.
+  </Step>
+  
+  <Step title="Initiate Withdrawal">
+    Enter amount to withdraw back to your main wallet.
+    
+    ```typescript src/features/polymarket/funding/screens/PolymarketWithdrawalScreen.tsx
+    <PolymarketWithdrawalScreen />
+    ```
+  </Step>
+  
+  <Step title="Confirm Transaction">
+    Sign the withdrawal transaction on Polygon.
+  </Step>
+  
+  <Step title="Receive USDC">
+    USDC arrives in your main wallet on Polygon.
+  </Step>
+</Steps>
+
+## Market Classification
+
+Markets are classified by type:
+
+```typescript src/features/polymarket/utils/marketClassification.ts
+export function classifyMarket(market: PolymarketMarket) {
+  if (market.tags.includes('sports')) {
+    return 'sports';
+  }
+  if (market.tags.includes('politics')) {
+    return 'politics';
+  }
+  if (market.tags.includes('crypto')) {
+    return 'crypto';
+  }
+  return 'other';
+}
+```
+
+Classifications affect:
+- Event browsing categories
+- Icon and color themes  
+- Filtering and search
+- Analytics tracking
+
+## Order Tracking
+
+Orders are tracked for analytics:
+
+```typescript src/features/polymarket/utils/polymarketOrderTracker.ts
+export function trackPolymarketOrder({
+  orderResult,
+  context,
+}: {
+  orderResult: OrderResult;
+  context: OrderContext;
+}) {
+  analytics.track(analytics.event.predictionsPlaceOrder, {
+    eventSlug: context.eventSlug,
+    marketSlug: context.marketSlug,
+    outcome: context.outcome,
+    orderAmountUsd: Number(context.amount),
+    orderPriceUsd: Number(context.price),
+    tokenId: context.tokenId,
+    side: context.side,
+  });
+}
+```
+
+Tracked events:
+- Order placed
+- Order filled
+- Position sold
+- Winnings redeemed
+- Errors and failures

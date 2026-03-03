@@ -1,0 +1,170 @@
+---
+title: 'ENS Integration Overview'
+description: 'Complete ENS integration for domain management in Rainbow Wallet'
+---
+
+Rainbow Wallet provides comprehensive Ethereum Name Service (ENS) integration, allowing users to register, manage, and customize their .eth domains directly from the wallet.
+
+## Features
+
+<CardGroup cols={2}>
+  <Card title="Domain Registration" icon="pen-to-square" href="/features/ens/registration">
+    Search, register, and renew .eth domains with a streamlined workflow
+  </Card>
+  
+  <Card title="ENS Profiles" icon="user" href="/features/ens/profiles">
+    Set up and customize your ENS profile with records and social links
+  </Card>
+  
+  <Card title="ENS Avatars" icon="image" href="/features/ens/avatars">
+    Configure NFT avatars and profile images for your ENS name
+  </Card>
+  
+  <Card title="Reverse Records" icon="arrows-rotate">
+    Set your primary ENS name to display across the wallet
+  </Card>
+</CardGroup>
+
+## ENS Name Search
+
+Rainbow includes intelligent ENS name search and suggestions throughout the wallet:
+
+- **Contact autocomplete**: Type an ENS name when sending transactions
+- **Reverse lookup**: See ENS names for Ethereum addresses
+- **Profile suggestions**: Avatar and profile data prefetching for suggestions
+- **Validation**: Real-time name availability and format checking
+
+<Info>
+ENS names must be at least 3 characters long and contain only letters, numbers, and hyphens.
+</Info>
+
+## Integration Points
+
+### Name Resolution
+
+ENS names are resolved throughout the wallet:
+
+```typescript src/handlers/ens.ts
+export const fetchReverseRecord = async (address: string) => {
+  try {
+    const checksumAddress = getAddress(address);
+    const provider = getProvider({ chainId: ChainId.mainnet });
+    const reverseRecord = await provider.lookupAddress(checksumAddress);
+    return reverseRecord ?? '';
+  } catch (e) {
+    return '';
+  }
+};
+```
+
+### Avatar Display
+
+ENS avatars are displayed in:
+- Contact suggestions when sending
+- Profile screens
+- Transaction history
+- Contact lists
+
+### Records Management
+
+Supported ENS records include:
+- **Cryptocurrency addresses**: ETH, BTC, LTC, DOGE
+- **Social profiles**: Twitter, Discord, GitHub, Reddit, Instagram
+- **Profile data**: Avatar, header image, description, email, URL
+- **Content hash**: IPFS and other decentralized content
+
+## ENS as NFTs
+
+ENS domains are ERC-721 NFTs and appear in your NFT collection:
+
+```typescript src/handlers/ens.ts
+const buildEnsToken = ({
+  contractAddress,
+  tokenId,
+  name,
+  imageUrl,
+}: {
+  contractAddress: string;
+  tokenId: string;
+  name: string;
+  imageUrl: string;
+}): UniqueAsset => {
+  return {
+    name,
+    description: `\`${name}\`, an ENS name.`,
+    collectionDescription:
+      'Ethereum Name Service (ENS) domains are secure domain names for the decentralized world.',
+    type: AssetType.ens,
+    network: Network.mainnet,
+    chainId: ChainId.mainnet,
+    contractAddress: contractAddress as Address,
+    tokenId,
+    standard: NftTokenType.Erc721,
+    isSendable: true,
+    // ...
+  };
+};
+```
+
+## Primary Name
+
+Users can set a primary ENS name (reverse record) that displays as their wallet identity:
+
+- Shown in the wallet header
+- Displayed when connecting to dApps
+- Used as the default name when sending transactions
+- Set during registration or updated later
+
+<Note>
+Setting a reverse record requires a separate transaction after registration.
+</Note>
+
+## Gas Estimation
+
+ENS operations include detailed gas estimation:
+
+- **Commit transaction**: Reserve the name
+- **Register transaction**: Complete registration
+- **Multicall transaction**: Set multiple records at once
+- **Set name transaction**: Configure reverse record
+
+Gas limits are estimated for the complete registration flow:
+
+```typescript src/handlers/ens.ts
+export const estimateENSRegistrationGasLimit = async (
+  name: string,
+  ownerAddress: string,
+  duration: number,
+  rentPrice: string,
+  records: Records = DUMMY_RECORDS
+) => {
+  const commitGasLimitPromise = estimateENSCommitGasLimit({...});
+  const setRecordsGasLimitPromise = estimateENSSetRecordsGasLimit({...});
+  const setNameGasLimitPromise = estimateENSSetNameGasLimit({...});
+  
+  const gasLimits = await Promise.all([
+    commitGasLimitPromise,
+    setRecordsGasLimitPromise,
+    setNameGasLimitPromise
+  ]);
+  
+  return {
+    commitGasLimit,
+    multicallGasLimit,
+    registerWithConfigGasLimit,
+    setNameGasLimit,
+    totalRegistrationGasLimit
+  };
+};
+```
+
+## Technical Implementation
+
+- **GraphQL API**: ENS subgraph for name data and availability
+- **Avatar Resolver**: Supports NFT avatars, IPFS, and HTTP images  
+- **Local Caching**: Avatar and profile data cached for performance
+- **Provider Integration**: Direct Ethereum provider calls for resolution
+
+<Warning>
+ENS registration is a two-step process with a waiting period between commit and register transactions to prevent front-running.
+</Warning>

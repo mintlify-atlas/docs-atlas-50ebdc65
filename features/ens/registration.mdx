@@ -1,0 +1,320 @@
+---
+title: 'ENS Domain Registration'
+description: 'Step-by-step guide to registering and renewing ENS domains'
+---
+
+Rainbow Wallet provides a streamlined workflow for registering .eth domain names through the Ethereum Name Service.
+
+## Registration Flow
+
+The ENS registration process consists of multiple steps to ensure security and prevent front-running:
+
+<Steps>
+  <Step title="Search for Domain">
+    Users search for available .eth names from the ENS Search Sheet.
+    
+    ```typescript src/screens/ENSSearchSheet.tsx
+    const {
+      data: registrationData,
+      isIdle,
+      isRegistered,
+      isPending,
+      isLoading,
+      isInvalid,
+      isAvailable,
+    } = useENSSearch({
+      name: debouncedSearchQuery,
+    });
+    ```
+    
+    - Minimum 3 characters required
+    - Real-time validation and availability checking
+    - Shows current registration status and expiration
+  </Step>
+  
+  <Step title="Configure Records">
+    Set up profile information and records before registration.
+    
+    - Avatar (NFT or image URL)
+    - Description and display name
+    - Social media profiles (Twitter, Discord, GitHub, etc.)
+    - Cryptocurrency addresses (ETH, BTC, LTC, DOGE)
+    - Custom text records
+  </Step>
+  
+  <Step title="Commit Transaction">
+    First transaction commits to the registration.
+    
+    ```typescript src/helpers/ens.ts
+    const salt = generateSalt();
+    await estimateENSCommitGasLimit({
+      name,
+      ownerAddress,
+      duration,
+      rentPrice,
+      salt,
+    });
+    ```
+    
+    - Creates a commitment hash
+    - Prevents front-running attacks
+    - Requires gas payment
+  </Step>
+  
+  <Step title="Wait Period">
+    60-second waiting period after commit confirmation.
+    
+    - Ensures blockchain confirmation
+    - Prevents MEV attacks
+    - Shows countdown timer in UI
+  </Step>
+  
+  <Step title="Register Transaction">
+    Complete the registration with the register transaction.
+    
+    ```typescript src/helpers/ens.ts
+    await estimateENSRegisterWithConfigGasLimit({
+      name,
+      ownerAddress,
+      duration,
+      rentPrice,
+      salt,
+    });
+    ```
+    
+    - Finalizes domain ownership
+    - Sets initial resolver and records
+    - Mints ENS NFT to your wallet
+  </Step>
+  
+  <Step title="Set Records (Optional)">
+    Additional transaction to set custom records if configured.
+    
+    - Text records (social profiles, description)
+    - Address records (cryptocurrency addresses)
+    - Content hash (IPFS, decentralized websites)
+  </Step>
+  
+  <Step title="Set Reverse Record (Optional)">
+    Set the name as your primary ENS name.
+    
+    ```typescript src/screens/ENSConfirmRegisterSheet.tsx
+    const [sendReverseRecord, setSendReverseRecord] = useState(
+      accountProfile.accountENS !== ensName
+    );
+    ```
+    
+    - Makes this name your wallet's display name
+    - Shown when connecting to dApps
+    - Can be changed later
+  </Step>
+</Steps>
+
+## Registration States
+
+The registration UI adapts based on the current state:
+
+### COMMIT State
+
+```typescript src/screens/ENSConfirmRegisterSheet.tsx
+<CommitContent
+  duration={duration}
+  registrationCostsData={registrationCostsData}
+  setDuration={setDuration}
+/>
+```
+
+- Shows total cost estimate
+- Duration selector (1-10 years)
+- Gas fee breakdown
+- "Hold to Begin" button
+
+### WAIT_COMMIT_CONFIRMATION State
+
+- Shows transaction pending status
+- Displays transaction hash
+- Waits for blockchain confirmation
+
+### WAIT_ENS_COMMITMENT State
+
+```typescript src/components/ens-registration/WaitENSConfirmationContent.tsx
+<WaitENSConfirmationContent
+  seconds={ENS_SECONDS_WAIT - onMountSecondsSinceCommitConfirmed}
+/>
+```
+
+- 60-second countdown timer
+- Explanation of waiting period
+- Cannot be skipped
+
+### REGISTER State
+
+```typescript src/screens/ENSConfirmRegisterSheet.tsx
+<RegisterContent
+  accentColor={accentColor}
+  sendReverseRecord={sendReverseRecord}
+  setSendReverseRecord={setSendReverseRecord}
+/>
+```
+
+- Final registration details
+- Reverse record toggle
+- "Hold to Register" button
+- Shows ENS avatar if configured
+
+## Cost Calculation
+
+Registration costs include:
+
+- **Base rent**: Price per year (varies by name length)
+- **Gas fees**: For all transactions (commit, register, set records)
+- **Network fees**: Ethereum mainnet fees
+
+```typescript src/hooks/useENSRegistrationCosts.ts
+const { data: registrationCostsData } = useENSRegistrationCosts({
+  name: ensName,
+  rentPrice: registrationData?.rentPrice,
+  sendReverseRecord,
+  step,
+  yearsDuration: duration,
+});
+```
+
+Displayed costs:
+- **Per year**: `rentPrice.perYear.display`
+- **Total registration**: Includes all gas fees
+- **Estimated total**: Rent + gas for selected duration
+
+<Info>
+Longer registration periods (3-10 years) save on gas fees by reducing the frequency of renewal transactions.
+</Info>
+
+## Pending Registrations
+
+If a registration is interrupted, it can be resumed:
+
+```typescript src/screens/ENSSearchSheet.tsx
+const { finishRegistration } = useENSPendingRegistrations();
+
+const handlePressFinish = useCallback(() => {
+  finishRegistration(`${searchQuery}${ENS_DOMAIN}`);
+}, [finishRegistration, searchQuery]);
+```
+
+- Stored in local state
+- Resume from any step
+- Shows in search sheet
+
+## Renewing Domains
+
+Renew existing ENS domains before expiration:
+
+<Steps>
+  <Step title="Navigate to Domain">
+    Open the domain from your NFT collection or profile screen.
+  </Step>
+  
+  <Step title="Select Renewal Duration">
+    Choose how many years to extend (1-10 years).
+    
+    ```typescript src/screens/ENSConfirmRegisterSheet.tsx
+    <RenewContent
+      name={name}
+      registrationCostsData={registrationCostsData}
+      setDuration={setDuration}
+      yearsDuration={duration}
+    />
+    ```
+  </Step>
+  
+  <Step title="Confirm Renewal">
+    Review costs and submit the renewal transaction.
+    
+    - Shows per-year cost
+    - Total cost for selected duration
+    - Gas fee estimate
+    - "Hold to Extend" button
+  </Step>
+</Steps>
+
+## Registration Modes
+
+The registration system supports multiple modes:
+
+```typescript src/helpers/ens.ts
+export const REGISTRATION_MODES = {
+  CREATE: 'create',      // New registration
+  EDIT: 'edit',         // Update existing records
+  RENEW: 'renew',       // Extend registration
+  TRANSFER: 'transfer', // Transfer ownership
+};
+```
+
+Each mode has a tailored UI and transaction flow.
+
+## Error Handling
+
+- **Insufficient balance**: Warns before transaction
+- **Invalid name**: Shows validation error immediately
+- **Already registered**: Displays owner and expiration
+- **Transaction failed**: Allows retry from last step
+- **Gas estimation failed**: Shows fallback estimates
+
+<Warning>
+The commit transaction must be confirmed before the 60-second waiting period begins. Make sure to approve it promptly.
+</Warning>
+
+## Technical Details
+
+### Salt Generation
+
+Each registration uses a unique salt:
+
+```typescript src/helpers/ens.ts
+export const generateSalt = () => {
+  return `0x${[...Array(64)]
+    .map(() => Math.floor(Math.random() * 16).toString(16))
+    .join('')}`;
+};
+```
+
+### Gas Limit Estimation
+
+Gas is estimated for the entire flow:
+
+```typescript src/handlers/ens.ts
+const totalRegistrationGasLimit =
+  [...gasLimits, registerWithConfigGasLimit]
+    .reduce((a, b) => add(a || 0, b || 0), '') ||
+  `${ethUnits.ens_registration}`;
+```
+
+Fallback values are used if estimation fails to ensure users can proceed.
+
+### Record Formatting
+
+```typescript src/handlers/ens.ts
+export const formatRecordsForTransaction = (
+  records?: Records
+): ENSRegistrationRecords => {
+  const coinAddress = [];
+  const text = [];
+  let contenthash = null;
+  
+  records && Object.entries(records).forEach(([key, value]) => {
+    switch (key) {
+      case ENS_RECORDS.twitter:
+      case ENS_RECORDS.description:
+        text.push({ key, value });
+        return;
+      case ENS_RECORDS.ETH:
+      case ENS_RECORDS.BTC:
+        coinAddress.push({ address: value, key });
+        return;
+      // ...
+    }
+  });
+  
+  return { coinAddress, contenthash, ensAssociatedAddress, text };
+};
+```

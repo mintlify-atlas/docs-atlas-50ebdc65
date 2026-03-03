@@ -1,0 +1,472 @@
+---
+title: 'dApp Connections'
+description: 'Connect Rainbow Wallet to decentralized applications'
+---
+
+Rainbow Wallet makes it easy to connect to dApps using WalletConnect, whether through QR codes, deep links, or browser extensions.
+
+## Connection Methods
+
+### QR Code Scanning
+
+The most common way to connect to desktop dApps:
+
+<Steps>
+  <Step title="Open dApp">
+    Navigate to the dApp in your desktop browser.
+  </Step>
+  
+  <Step title="Click Connect Wallet">
+    Select WalletConnect as the connection method.
+  </Step>
+  
+  <Step title="Scan QR Code">
+    Use Rainbow's built-in scanner to scan the displayed QR code.
+  </Step>
+  
+  <Step title="Approve Connection">
+    Review the connection request and approve it in Rainbow.
+  </Step>
+</Steps>
+
+### Deep Links (Mobile)
+
+Connect from mobile dApp browsers:
+
+```typescript src/walletConnect/index.tsx
+export async function pair({ uri, connector }: {
+  uri: string;
+  connector?: string;
+}) {
+  lastConnector = connector;
+  const { topic, ...rest } = parseUri(uri);
+  const client = await getWalletKitClient();
+  await client.pair({ uri });
+}
+```
+
+Deep link formats:
+- `rainbow://wc?uri=wc:...`
+- `https://rnbwapp.com/wc?uri=wc:...`
+
+<Steps>
+  <Step title="Open Mobile dApp">
+    Navigate to the dApp in a mobile browser or native app.
+  </Step>
+  
+  <Step title="Tap Connect Wallet">
+    Select Rainbow or WalletConnect.
+  </Step>
+  
+  <Step title="Automatic Switch">
+    Rainbow automatically opens with the connection request.
+  </Step>
+  
+  <Step title="Approve">
+    Review and approve the connection.
+  </Step>
+</Steps>
+
+<Info>
+Deep links automatically switch between the dApp and Rainbow, making mobile connections seamless.
+</Info>
+
+## Session Proposal
+
+When a dApp requests a connection, you'll see a session proposal:
+
+```typescript src/walletConnect/index.tsx
+export async function onSessionProposal(
+  proposal: WalletKitTypes.SessionProposal
+) {
+  const verifiedData = proposal.verifyContext.verified;
+  const receivedTimestamp = Date.now();
+  const { proposer, requiredNamespaces, optionalNamespaces } =
+    proposal.params;
+
+  const requiredChains = requiredNamespaces?.eip155?.chains || [];
+  const optionalChains = optionalNamespaces?.eip155?.chains || [];
+  const chains = uniq([...requiredChains, ...optionalChains]);
+
+  const peerMeta = proposer.metadata;
+  const metadata = await fetchDappMetadata({ url: peerMeta.url, status: true });
+
+  const dappName = metadata?.appName || peerMeta.name || 'Unknown dApp';
+  const dappImage = metadata?.appLogo || peerMeta?.icons?.[0];
+}
+```
+
+### Displayed Information
+
+The connection request shows:
+
+- **dApp Name**: From metadata or proposer
+- **dApp Icon**: Logo image
+- **dApp URL**: Origin domain
+- **Verification Badge**: If domain is verified
+- **Requested Chains**: Networks the dApp wants to use
+- **Requested Methods**: What the dApp can do (sign, send transactions)
+
+### Approval Flow
+
+```typescript src/walletConnect/index.tsx
+const routeParams: WalletconnectApprovalSheetRouteParams = {
+  receivedTimestamp,
+  meta: {
+    chainIds: chainIdsToUse,
+    dappName,
+    dappScheme: 'unused in WC v2',
+    dappUrl: peerMeta.url || 'Unknown URL',
+    imageUrl: maybeSignUri(dappImage, { w: 200 }),
+    peerId: proposer.publicKey,
+    isWalletConnectV2: true,
+  },
+  verifiedData,
+  timedOut: false,
+  callback: async (approved, approvedChainId, accountAddress) => {
+    if (approved) {
+      // Approve session
+      const namespaces = getApprovedNamespaces({
+        proposal: proposal.params,
+        supportedNamespaces: {
+          eip155: {
+            chains: caip2ChainIds,
+            methods: [...SUPPORTED_SIGNING_METHODS, ...SUPPORTED_TRANSACTION_METHODS],
+            events: supportedEvents,
+            accounts: caip2ChainIds.map(id => `${id}:${accountAddress}`),
+          },
+        },
+      });
+      
+      await client.approveSession({ id, namespaces: namespaces.result });
+    } else {
+      // Reject session
+      await rejectProposal({ proposal, reason: 'USER_REJECTED' });
+    }
+  },
+};
+```
+
+<Steps>
+  <Step title="Review Request">
+    Check the dApp name, URL, and requested permissions.
+  </Step>
+  
+  <Step title="Check Verification">
+    Look for the verification badge or scam warning.
+  </Step>
+  
+  <Step title="Select Wallet">
+    Choose which wallet address to connect (if you have multiple).
+  </Step>
+  
+  <Step title="Approve or Reject">
+    Tap approve to connect, or reject to decline.
+  </Step>
+</Steps>
+
+## Approved Namespaces
+
+When approving a session, Rainbow builds the approved namespaces:
+
+```typescript src/walletConnect/index.tsx
+export function getApprovedNamespaces(
+  props: Parameters<typeof buildApprovedNamespaces>[0]
+): 
+  | { success: true; result: ReturnType<typeof buildApprovedNamespaces>; error: undefined; }
+  | { success: false; result: undefined; error: Error; } 
+{
+  try {
+    const namespaces = buildApprovedNamespaces(props);
+
+    if (!namespaces.eip155.accounts.length) {
+      return {
+        success: false,
+        result: undefined,
+        error: new Error('No accounts found'),
+      };
+    }
+
+    return { success: true, result: namespaces, error: undefined };
+  } catch (e: any) {
+    return { success: false, result: undefined, error: e };
+  }
+}
+```
+
+Namespace structure:
+
+```typescript
+namespaces: {
+  eip155: {
+    chains: ['eip155:1', 'eip155:10', 'eip155:137'],  // Networks
+    methods: [
+      'personal_sign',
+      'eth_signTypedData_v4',
+      'eth_sendTransaction',
+    ],
+    events: ['chainChanged', 'accountsChanged'],
+    accounts: [
+      'eip155:1:0x123...',
+      'eip155:10:0x123...',
+      'eip155:137:0x123...',
+    ],
+  },
+}
+```
+
+<Note>
+Rainbow automatically includes your wallet address on all supported chains, even if the dApp only requested one chain.
+</Note>
+
+## Managing Sessions
+
+View and manage active WalletConnect sessions:
+
+### List Active Sessions
+
+```typescript src/walletConnect/index.tsx
+export async function getAllActiveSessions() {
+  const client = await getWalletKitClient();
+  return Object.values(client?.getActiveSessions() || {}) || [];
+}
+
+// Synchronous version
+export function getAllActiveSessionsSync() {
+  return Object.values(syncWalletKitClient?.getActiveSessions() || {}) || [];
+}
+```
+
+Each session includes:
+- dApp metadata (name, icon, URL)
+- Connected wallet address
+- Active chains
+- Allowed methods
+- Session expiration
+
+### Disconnect Session
+
+```typescript src/walletConnect/index.tsx
+export async function disconnectSession(session: SessionTypes.Struct) {
+  const client = await getWalletKitClient();
+  
+  await client.disconnectSession({
+    topic: session.topic,
+    reason: getSdkError('USER_DISCONNECTED'),
+  });
+}
+```
+
+<Steps>
+  <Step title="Navigate to Connected dApps">
+    Open the WalletConnect sessions list in settings.
+  </Step>
+  
+  <Step title="Select Session">
+    Tap on the dApp session you want to disconnect.
+  </Step>
+  
+  <Step title="Disconnect">
+    Confirm the disconnection.
+  </Step>
+</Steps>
+
+## Switching Wallets
+
+Change which wallet is connected to a dApp:
+
+```typescript src/walletConnect/index.tsx
+export async function changeAccount(
+  session: SessionTypes.Struct,
+  { address }: { address?: string }
+) {
+  try {
+    const client = await getWalletKitClient();
+
+    // First add the account to the session
+    await addAccountToSession(session, { address });
+
+    // Then notify the dApp of the change
+    for (const value of Object.values(session.namespaces)) {
+      if (!value.chains) continue;
+
+      for (const chainId of value.chains) {
+        await client.emitSessionEvent({
+          topic: session.topic,
+          event: {
+            name: 'accountsChanged',
+            data: [address],
+          },
+          chainId,
+        });
+      }
+    }
+
+    return true;
+  } catch (e) {
+    logger.error(new RainbowError('[walletConnect]: error changing account'));
+  }
+  return false;
+}
+```
+
+<Steps>
+  <Step title="Open Session Details">
+    Navigate to the connected dApp session.
+  </Step>
+  
+  <Step title="Tap Switch Wallet">
+    Select the switch wallet option.
+  </Step>
+  
+  <Step title="Choose New Wallet">
+    Select which wallet address to use.
+  </Step>
+  
+  <Step title="Confirm">
+    The dApp receives an `accountsChanged` event.
+  </Step>
+</Steps>
+
+### Adding Accounts
+
+```typescript src/walletConnect/index.tsx
+export async function addAccountToSession(
+  session: SessionTypes.Struct,
+  { address }: { address?: string }
+) {
+  const client = await getWalletKitClient();
+
+  const namespaces: Parameters<typeof client.updateSession>[0]['namespaces'] = {};
+  
+  for (const [key, value] of Object.entries(session.namespaces)) {
+    const ns = session.namespaces[key];
+
+    namespaces[key] = {
+      ...ns,
+      accounts: ns.accounts || [],
+      methods: value.methods,
+      events: value.events,
+    };
+
+    if (value.chains) {
+      for (const chain of value.chains) {
+        const chainId = parseInt(chain.split(`${key}:`)[1]);
+        const account = `${key}:${chainId}:${address}`;
+
+        // Add to beginning of array
+        if (!namespaces[key].accounts.includes(account)) {
+          namespaces[key].accounts.unshift(account);
+        } else {
+          // Move to start if already present
+          namespaces[key].accounts.splice(
+            namespaces[key].accounts.indexOf(account),
+            1
+          );
+          namespaces[key].accounts.unshift(account);
+        }
+      }
+    }
+  }
+
+  await client.updateSession({
+    topic: session.topic,
+    namespaces,
+  });
+}
+```
+
+<Info>
+Rainbow automatically adds your wallet address to all chains in the session, not just the active one.
+</Info>
+
+## Session Events
+
+Rainbow listens for session lifecycle events:
+
+```typescript src/walletConnect/index.tsx
+export async function initListeners() {
+  const client = await getWalletKitClient();
+
+  client.on('session_proposal', onSessionProposal);
+  client.on('session_request', onSessionRequest);
+  client.on('session_delete', () => {
+    setTimeout(() => {
+      events.emit('walletConnectV2SessionDeleted');
+    }, 500);
+  });
+}
+```
+
+Events:
+- **session_proposal**: New connection request
+- **session_request**: Transaction or signing request
+- **session_delete**: Session disconnected by dApp
+- **session_update**: Session parameters changed
+
+## Verification & Security
+
+### Domain Verification
+
+```typescript src/walletConnect/index.tsx
+const verifiedData = proposal.verifyContext.verified;
+```
+
+Verification data:
+- **Origin**: Verified domain
+- **Validation**: Valid/Invalid
+- **Verified at**: Timestamp
+
+### Scam Detection
+
+```typescript src/walletConnect/index.tsx
+const metadata = await fetchDappMetadata({ url: peerMeta.url, status: true });
+const isScam = metadata?.status === DAppStatus.Scam;
+```
+
+If a dApp is flagged as a scam:
+- Red warning banner displayed
+- Scam alert in approval UI
+- Recommended to reject connection
+
+<Warning>
+Always verify the dApp URL matches the official domain before connecting. Phishing sites may impersonate legitimate dApps.
+</Warning>
+
+## Connection Timeout
+
+Session proposals can timeout:
+
+```typescript src/walletConnect/index.tsx
+const routeParams: WalletconnectApprovalSheetRouteParams = {
+  receivedTimestamp: Date.now(),
+  timedOut: false,
+  // ...
+};
+```
+
+Timeout handling:
+- 5-minute expiration on proposals
+- Automatic rejection on timeout
+- User notified if timed out
+
+## Post-Connection Redirect
+
+After approving a connection, Rainbow can redirect back to the dApp:
+
+```typescript src/walletConnect/index.tsx
+maybeGoBackAndClearHasPendingRedirect();
+if (IS_IOS) {
+  Navigation.handleAction(Routes.WALLET_CONNECT_REDIRECT_SHEET, {
+    type: 'connect',
+  });
+}
+```
+
+Redirect behavior:
+- **iOS**: Shows redirect sheet, then returns to dApp
+- **Android**: Automatically minimizes to dApp
+
+<Note>
+The redirect ensures a smooth experience when connecting from mobile dApp browsers.
+</Note>

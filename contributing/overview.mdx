@@ -1,0 +1,204 @@
+---
+title: Contributing Overview
+description: Get started contributing to Rainbow Wallet
+---
+
+Welcome to Rainbow Wallet! We're excited that you're interested in contributing to the Ethereum wallet that lives in your pocket.
+
+## Quick Start
+
+Rainbow is a React Native crypto wallet app for iOS and Android. It uses React Navigation, custom Zustand-based store creators for state management, and ethers/viem for blockchain interactions.
+
+### Prerequisites
+
+Before you begin, ensure you have:
+
+<Steps>
+  <Step title="Install nvm">
+    Install Node Version Manager from [nvm repository](https://github.com/creationix/nvm)
+  </Step>
+  
+  <Step title="Install Node.js">
+    Install the required Node.js version:
+    ```bash
+    nvm install
+    ```
+    
+    On future terminal sessions, run `nvm use` to activate the correct Node.js version.
+  </Step>
+  
+  <Step title="Install Ruby">
+    Install Ruby (version specified in `.ruby-version`). macOS system Ruby is too old. Use a version manager such as [rbenv](https://github.com/rbenv/rbenv) or [rvm](https://rvm.io/).
+  </Step>
+  
+  <Step title="Enable Yarn">
+    ```bash
+    corepack enable
+    ```
+  </Step>
+</Steps>
+
+### Setup for External Contributors
+
+If you're an external contributor, follow these steps:
+
+<Steps>
+  <Step title="Fork the repository">
+    Fork the Rainbow repository on GitHub and clone your fork locally.
+  </Step>
+  
+  <Step title="Configure environment">
+    Copy `.env.example` to `.env` and fill in your own API keys:
+    - **Etherscan**: https://etherscan.io/apis
+    - **Infura**: https://infura.io/
+    - **ETH Gas Station**: https://docs.ethgasstation.info/
+    - **Imgix**: https://www.imgix.com/
+    
+    Note: Some features are currently not accessible. We are working with Data Providers to provide open source API Keys.
+  </Step>
+  
+  <Step title="Add Firebase configuration">
+    Provide your own `google-services.json` in `android/app/` from a personal Firebase project registered under the package name `me.rainbow`.
+    
+    The iOS `GoogleService-Info.plist` is already in the repo and gets its API key patched from `GOOGLE_SERVICE_API_KEY` in your `.env`.
+  </Step>
+  
+  <Step title="Install dependencies">
+    ```bash
+    yarn install && yarn setup
+    ```
+  </Step>
+</Steps>
+
+### Platform-Specific Setup
+
+#### iOS (macOS only)
+
+<Steps>
+  <Step title="Install Xcode">
+    Install Xcode from the Mac App Store.
+  </Step>
+  
+  <Step title="Install Watchman">
+    ```bash
+    brew install watchman
+    ```
+  </Step>
+  
+  <Step title="Install bundles and Pods">
+    ```bash
+    yarn install-bundle && yarn install-pods
+    ```
+  </Step>
+</Steps>
+
+#### Android
+
+<Steps>
+  <Step title="Install JDK 17">
+    Do **not** use the JDK bundled with Android Studio (it's JDK 21, which causes build failures). On macOS:
+    ```bash
+    brew install --cask zulu@17
+    ```
+  </Step>
+  
+  <Step title="Configure environment variables">
+    Add to your shell profile (`~/.zshrc` or `~/.bashrc`):
+    ```bash
+    export JAVA_HOME=/Library/Java/JavaVirtualMachines/zulu-17.jdk/Contents/Home
+    export ANDROID_HOME=$HOME/Library/Android/sdk  # macOS
+    # export ANDROID_HOME=$HOME/Android/Sdk        # Linux
+    export PATH=$PATH:$ANDROID_HOME/emulator
+    export PATH=$PATH:$ANDROID_HOME/platform-tools
+    ```
+    
+    On Linux, also install system dependencies:
+    ```bash
+    sudo apt install libsecret-tools watchman
+    ```
+  </Step>
+  
+  <Step title="Install Android Studio">
+    Install [Android Studio](https://developer.android.com/studio) using the standard setup wizard.
+  </Step>
+  
+  <Step title="Configure Android Studio">
+    - **Increase IDE memory**: Go to **Android Studio > Settings > Memory Settings** and set the heap to at least 4096 MB
+    - **Set Gradle JDK**: Go to **Settings > Build, Execution, Deployment > Build Tools > Gradle > Gradle JDK** and select the `JAVA_HOME` (Azul Zulu 17) entry
+  </Step>
+  
+  <Step title="Create an emulator">
+    Create an emulator via **Android Studio > Device Manager** (unless using a physical device).
+  </Step>
+  
+  <Step title="Run first build">
+    Restart any open terminals, then run the first build to generate native headers:
+    ```bash
+    cd android && ./gradlew assembleDebug && cd ..
+    ```
+  </Step>
+  
+  <Step title="Launch Android Studio properly">
+    Quit Android Studio completely, then reopen it from the terminal:
+    ```bash
+    open -a "Android Studio"  # macOS
+    ```
+    
+    Always launch Android Studio this way so it inherits your shell PATH (including `node` from nvm). Launching from Spotlight or the Dock will cause Gradle sync to fail.
+  </Step>
+</Steps>
+
+## Development Workflow
+
+### Running the App
+
+Start Metro in one terminal:
+```bash
+yarn start
+```
+
+Then build and run:
+- **iOS**: Open `ios/Rainbow.xcworkspace` in Xcode (not the `.xcodeproj`) and press Cmd+R, or run:
+  ```bash
+  yarn ios
+  ```
+- **Android**: Open the `android/` folder in Android Studio, or run:
+  ```bash
+  yarn android
+  ```
+
+### Before Submitting
+
+Before submitting a pull request, ensure your code passes all verification checks:
+
+```bash
+yarn lint        # Format check + TypeScript + ESLint
+yarn test        # Run Jest tests
+```
+
+See [Code Conventions](/contributing/code-conventions) and [Testing](/contributing/testing) for detailed guidelines.
+
+## Getting Help
+
+If you have questions or need help:
+- Review our [code conventions](/contributing/code-conventions)
+- Check the [PR guidelines](/contributing/pull-requests)
+- Look at recent pull requests for examples
+- Ask questions in your PR comments
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Code Conventions" icon="code" href="/contributing/code-conventions">
+    Learn about our coding standards and style guide
+  </Card>
+  <Card title="Testing Guidelines" icon="vial" href="/contributing/testing">
+    Understand our testing requirements and best practices
+  </Card>
+  <Card title="Pull Request Process" icon="code-pull-request" href="/contributing/pull-requests">
+    Follow our PR workflow and review process
+  </Card>
+  <Card title="Working with GraphQL" icon="diagram-project" href="/contributing/graphql">
+    Learn how to work with GraphQL queries and clients
+  </Card>
+</CardGroup>

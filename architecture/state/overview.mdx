@@ -1,0 +1,389 @@
+---
+title: State Management Overview
+description: Rainbow's custom Zustand-based state management system
+---
+
+Rainbow uses custom store creators built on Zustand for all state management. These replace the dual React Query + Zustand pattern with a unified approach.
+
+## Store Creators
+
+Three specialized store creators handle different state patterns:
+
+<CardGroup cols={3}>
+  <Card title="createRainbowStore" icon="database" href="/architecture/state/rainbow-store">
+    General-purpose store with optional MMKV persistence. Use for client state.
+  </Card>
+  <Card title="createQueryStore" icon="cloud" href="/architecture/state/query-store">
+    Data fetching + state in one store. Use for server/async data.
+  </Card>
+  <Card title="createDerivedStore" icon="code-branch" href="/architecture/state/derived-store">
+    Read-only computed state from other stores. Use for aggregated data.
+  </Card>
+</CardGroup>
+
+## Quick Comparison
+
+| Feature | createRainbowStore | createQueryStore | createDerivedStore |
+|---------|-------------------|------------------|--------------------|
+| **Purpose** | Client state | Server state | Computed state |
+| **Persistence** | Optional (MMKV) | Optional (MMKV) | No |
+| **Data Fetching** | Manual | Built-in | N/A |
+| **Reactivity** | Standard | Reactive params | Auto-tracking |
+| **Caching** | No | Yes | No |
+| **Mutations** | Full | Full | Read-only |
+
+## When to Use Each
+
+<Tabs>
+  <Tab title="createRainbowStore">
+    Use for **client-side state** that doesn't require data fetching:
+    
+    - UI state (modals, selections, preferences)
+    - Form state
+    - Local caches
+    - Navigation state
+    - User preferences
+    
+    ```typescript
+    const useUIStore = createRainbowStore((set) => ({
+      isModalOpen: false,
+      selectedTab: 'wallet',
+      setModalOpen: (open: boolean) => set({ isModalOpen: open }),
+      setSelectedTab: (tab: string) => set({ selectedTab: tab }),
+    }));
+    ```
+  </Tab>
+  
+  <Tab title="createQueryStore">
+    Use for **server state** or any async data:
+    
+    - API responses
+    - Blockchain data
+    - User balances
+    - Token prices
+    - NFT metadata
+    
+    ```typescript
+    const useTokenPriceStore = createQueryStore({
+      fetcher: async ({ tokenAddress }) => {
+        return await fetchTokenPrice(tokenAddress);
+      },
+      params: {
+        tokenAddress: '0x...',
+      },
+      staleTime: time.minutes(5),
+    });
+    ```
+  </Tab>
+  
+  <Tab title="createDerivedStore">
+    Use for **computed state** from other stores:
+    
+    - Portfolio totals
+    - Filtered lists
+    - Aggregated metrics
+    - Cross-store calculations
+    
+    ```typescript
+    const usePortfolioTotal = createDerivedStore(($) => {
+      const tokens = $(useTokensStore).tokens;
+      const prices = $(usePricesStore).prices;
+      
+      return tokens.reduce((total, token) => {
+        return total + token.balance * prices[token.address];
+      }, 0);
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Basic Usage Pattern
+
+All stores follow a consistent usage pattern:
+
+<CodeGroup>
+
+```typescript Creating a Store
+// Define your store
+export const useMyStore = createRainbowStore((set, get) => ({
+  count: 0,
+  increment: () => set((state) => ({ count: state.count + 1 })),
+  decrement: () => set((state) => ({ count: state.count - 1 })),
+  reset: () => set({ count: 0 }),
+}));
+```
+
+```typescript Using in Components
+import { useMyStore } from '@/state/myStore';
+
+function Counter() {
+  // Select specific state
+  const count = useMyStore((state) => state.count);
+  const increment = useMyStore((state) => state.increment);
+  
+  return (
+    <View>
+      <Text>{count}</Text>
+      <Button onPress={increment}>+</Button>
+    </View>
+  );
+}
+```
+
+```typescript Outside React
+// Access state outside components
+const { count, increment } = useMyStore.getState();
+
+// Subscribe to changes
+const unsubscribe = useMyStore.subscribe(
+  (state) => state.count,
+  (count) => console.log('Count changed:', count)
+);
+```
+
+</CodeGroup>
+
+## Store Organization
+
+Stores are organized by domain in `src/state/`:
+
+```
+state/
+├── internal/              # Store creators
+│   ├── createRainbowStore.ts
+│   ├── createQueryStore.ts
+│   └── createDerivedStore.ts
+├── wallets/
+│   └── walletsStore.ts
+├── swaps/
+│   └── swapsStore.ts
+├── navigation/
+│   └── navigationStore.ts
+└── nfts/
+    └── openCollectionsStore.ts
+```
+
+## Real-World Example
+
+Here's how the navigation store is implemented:
+
+```typescript src/state/navigation/navigationStore.ts
+import { makeMutable, type SharedValue } from 'react-native-reanimated';
+import { type Route } from '@/navigation/Navigation';
+import Routes from '@/navigation/routesNames';
+import { createRainbowStore } from '../internal/createRainbowStore';
+
+export type NavigationState = {
+  activeRoute: Route;
+  activeSwipeRoute: SwipeRoute;
+  animatedActiveRoute: SharedValue<Route>;
+  animatedActiveSwipeRoute: SharedValue<SwipeRoute>;
+  isWalletScreenMounted: boolean;
+  isRouteActive: (route: Route) => boolean;
+  setActiveRoute: (route: Route) => void;
+};
+
+export const useNavigationStore = createRainbowStore<NavigationState>((set, get) => ({
+  activeRoute: Routes.WALLET_SCREEN,
+  activeSwipeRoute: Routes.WALLET_SCREEN,
+  animatedActiveRoute: makeMutable<Route>(Routes.WALLET_SCREEN),
+  animatedActiveSwipeRoute: makeMutable<SwipeRoute>(Routes.WALLET_SCREEN),
+  isWalletScreenMounted: false,
+
+  isRouteActive: route => route === get().activeRoute,
+
+  setActiveRoute: route =>
+    set(state => {
+      const newActiveRoute = VIRTUAL_NAVIGATORS[route]?.getActiveRoute() ?? route;
+      if (newActiveRoute === state.activeRoute) return state;
+      
+      const onSwipeRoute = isSwipeRoute(newActiveRoute);
+      state.animatedActiveRoute.value = newActiveRoute;
+      if (onSwipeRoute) state.animatedActiveSwipeRoute.value = newActiveRoute;
+
+      return {
+        activeRoute: newActiveRoute,
+        activeSwipeRoute: onSwipeRoute ? newActiveRoute : state.activeSwipeRoute,
+      };
+    }),
+}));
+
+// Export methods for use outside React
+export const { isRouteActive, setActiveRoute } = useNavigationStore.getState();
+```
+
+## Persistence
+
+Stores can optionally persist to MMKV storage:
+
+```typescript
+const useSettingsStore = createRainbowStore(
+  (set) => ({
+    theme: 'light',
+    language: 'en',
+    setTheme: (theme) => set({ theme }),
+    setLanguage: (language) => set({ language }),
+  }),
+  {
+    storageKey: 'settings',
+    version: 1,
+  }
+);
+```
+
+See [Storage](/architecture/storage) for more details on persistence.
+
+## Migration from Legacy Systems
+
+<Warning>
+  React Query and Redux are being phased out. New features should use the custom store creators.
+</Warning>
+
+### From React Query
+
+<CodeGroup>
+
+```typescript Before (React Query)
+import { useQuery } from '@tanstack/react-query';
+
+function useTokenPrice(address: string) {
+  return useQuery(['tokenPrice', address], () => fetchPrice(address), {
+    staleTime: 5 * 60 * 1000,
+  });
+}
+```
+
+```typescript After (createQueryStore)
+import { createQueryStore } from '@/state/internal/createQueryStore';
+import { time } from '@/utils/time';
+
+const useTokenPriceStore = createQueryStore({
+  fetcher: async ({ address }) => fetchPrice(address),
+  params: { address: ($) => $(useWalletStore).selectedAddress },
+  staleTime: time.minutes(5),
+});
+```
+
+</CodeGroup>
+
+### From Redux
+
+<CodeGroup>
+
+```typescript Before (Redux)
+// Slice
+const counterSlice = createSlice({
+  name: 'counter',
+  initialState: { value: 0 },
+  reducers: {
+    increment: (state) => { state.value += 1; },
+    decrement: (state) => { state.value -= 1; },
+  },
+});
+
+// Usage
+const dispatch = useDispatch();
+const value = useSelector((state) => state.counter.value);
+```
+
+```typescript After (createRainbowStore)
+const useCounterStore = createRainbowStore((set) => ({
+  value: 0,
+  increment: () => set((s) => ({ value: s.value + 1 })),
+  decrement: () => set((s) => ({ value: s.value - 1 })),
+}));
+
+// Usage
+const value = useCounterStore((s) => s.value);
+const increment = useCounterStore((s) => s.increment);
+```
+
+</CodeGroup>
+
+## External Package Migration
+
+The store creators are being moved to an external [`stores`](https://github.com/christianbaroni/stores) package:
+
+| Internal | External |
+|----------|----------|
+| `createRainbowStore` | `createBaseStore` |
+| `createQueryStore` | `createQueryStore` |
+| `createDerivedStore` | `createDerivedStore` |
+
+The APIs are identical, so migration is just an import swap:
+
+```typescript Before
+import { createRainbowStore } from '@/state/internal/createRainbowStore';
+```
+
+```typescript After
+import { createBaseStore } from '@christianbaroni/stores';
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Keep stores focused">
+    Each store should manage a single domain or feature. Don't create monolithic stores.
+    
+    ```typescript
+    // ✅ Good - focused stores
+    useWalletsStore
+    useTokensStore
+    usePricesStore
+    
+    // ❌ Bad - monolithic store
+    useAppStore
+    ```
+  </Accordion>
+  
+  <Accordion title="Use selectors for performance">
+    Always select only the state you need to avoid unnecessary re-renders.
+    
+    ```typescript
+    // ✅ Good - selective
+    const count = useStore((s) => s.count);
+    
+    // ❌ Bad - entire state
+    const { count } = useStore();
+    ```
+  </Accordion>
+  
+  <Accordion title="Export methods for external use">
+    Export commonly-used methods for use outside React components.
+    
+    ```typescript
+    export const useNavStore = createRainbowStore(/* ... */);
+    
+    // Export for external use
+    export const { setActiveRoute } = useNavStore.getState();
+    ```
+  </Accordion>
+  
+  <Accordion title="Use TypeScript for type safety">
+    Always define proper types for your store state.
+    
+    ```typescript
+    interface MyStoreState {
+      count: number;
+      increment: () => void;
+    }
+    
+    const useMyStore = createRainbowStore<MyStoreState>(/* ... */);
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={3}>
+  <Card title="createRainbowStore" icon="database" href="/architecture/state/rainbow-store">
+    Deep dive into general-purpose stores
+  </Card>
+  <Card title="createQueryStore" icon="cloud" href="/architecture/state/query-store">
+    Learn about data fetching stores
+  </Card>
+  <Card title="createDerivedStore" icon="code-branch" href="/architecture/state/derived-store">
+    Understand derived/computed state
+  </Card>
+</CardGroup>

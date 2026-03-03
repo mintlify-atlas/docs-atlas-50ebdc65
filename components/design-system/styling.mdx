@@ -1,0 +1,469 @@
+---
+title: Styling Approach
+description: Understanding Rainbow's styled-thing styling system for React Native
+---
+
+Rainbow uses a custom styling solution called `styled-thing`, a lightweight alternative to styled-components optimized for React Native.
+
+## Overview
+
+`styled-thing` provides a familiar styled-components-like API with better performance characteristics for React Native:
+
+- **Object syntax only** - No template literals, uses object styles
+- **React.memo optimization** - Components are memoized with fast equality checks
+- **Prop filtering** - Supports `shouldForwardProp` for prop filtering
+- **Polymorphic rendering** - Use `as` or `$as` prop to change rendered component
+- **Theme support** - Access theme via context
+
+## Basic Usage
+
+### Creating Styled Components
+
+```typescript
+import styled from '@/framework/ui/styled-thing';
+import { View, Text } from 'react-native';
+
+const Container = styled(View)({
+  padding: 20,
+  backgroundColor: '#FFFFFF',
+  borderRadius: 16,
+});
+
+const Title = styled(Text)({
+  fontSize: 20,
+  fontWeight: '700',
+  color: '#000000',
+});
+
+function MyComponent() {
+  return (
+    <Container>
+      <Title>Hello World</Title>
+    </Container>
+  );
+}
+```
+
+### Dynamic Styles with Props
+
+Styles can be functions that receive props:
+
+```typescript
+import styled from '@/framework/ui/styled-thing';
+import { View } from 'react-native';
+
+interface BoxProps {
+  $variant: 'primary' | 'secondary';
+  $size: 'small' | 'large';
+}
+
+const Box = styled(View)<BoxProps>({
+  padding: ({ $size }) => ($size === 'large' ? 24 : 16),
+  backgroundColor: ({ $variant }) => 
+    $variant === 'primary' ? '#007AFF' : '#8E8E93',
+  borderRadius: 12,
+});
+
+// Usage
+<Box $variant="primary" $size="large">
+  {/* Content */}
+</Box>
+```
+
+## Advanced Features
+
+### Prop Filtering with shouldForwardProp
+
+Prevent certain props from being passed to the underlying component:
+
+```typescript
+const StyledButton = styled(Pressable)
+  .withConfig({
+    shouldForwardProp: (prop) => !prop.startsWith('$'),
+  })({
+    padding: 16,
+    backgroundColor: '#007AFF',
+  });
+
+// $variant won't be forwarded to Pressable
+<StyledButton $variant="primary" onPress={handlePress}>
+  <Text>Press me</Text>
+</StyledButton>
+```
+
+### Attrs for Default Props
+
+Use `attrs` to set default props or derive props:
+
+```typescript
+const StyledInput = styled(TextInput)
+  .attrs((props) => ({
+    placeholderTextColor: props.theme.colors.placeholder,
+    autoCapitalize: 'none',
+  }))({
+    padding: 12,
+    fontSize: 16,
+  });
+
+// placeholderTextColor and autoCapitalize are automatically set
+<StyledInput placeholder="Enter text" />
+```
+
+### Composing Styled Components
+
+Style existing styled components:
+
+```typescript
+const BaseButton = styled(Pressable)({
+  padding: 16,
+  borderRadius: 12,
+});
+
+const PrimaryButton = styled(BaseButton)({
+  backgroundColor: '#007AFF',
+});
+
+const SecondaryButton = styled(BaseButton)({
+  backgroundColor: '#8E8E93',
+});
+```
+
+### Polymorphic Components with as
+
+Render as a different component:
+
+```typescript
+import Animated from 'react-native-reanimated';
+
+const AnimatedBox = styled(View)({
+  padding: 20,
+  backgroundColor: '#FFFFFF',
+});
+
+// Render as Animated.View
+<AnimatedBox as={Animated.View} style={animatedStyles}>
+  {/* Animated content */}
+</AnimatedBox>
+
+// Use $as to prevent prop forwarding
+<AnimatedBox $as={Animated.View} style={animatedStyles}>
+  {/* Animated content */}
+</AnimatedBox>
+```
+
+## Theme Support
+
+### Theme Provider
+
+```typescript
+import { StyleThingThemeProvider } from '@/framework/ui/styled-thing';
+
+const theme = {
+  colors: {
+    primary: '#007AFF',
+    secondary: '#8E8E93',
+    background: '#FFFFFF',
+    text: '#000000',
+  },
+  spacing: {
+    small: 8,
+    medium: 16,
+    large: 24,
+  },
+};
+
+function App() {
+  return (
+    <StyleThingThemeProvider value={theme}>
+      <YourApp />
+    </StyleThingThemeProvider>
+  );
+}
+```
+
+### Accessing Theme in Styled Components
+
+```typescript
+interface Theme {
+  colors: {
+    primary: string;
+    background: string;
+  };
+  spacing: {
+    medium: number;
+  };
+}
+
+const ThemedBox = styled(View)(({ theme }: { theme: Theme }) => ({
+  padding: theme.spacing.medium,
+  backgroundColor: theme.colors.background,
+  borderColor: theme.colors.primary,
+  borderWidth: 1,
+}));
+```
+
+## CSS Prop
+
+`styled-thing` supports inline styles via the `css` prop:
+
+```typescript
+<StyledBox 
+  css={{ 
+    marginTop: 20,
+    backgroundColor: '#FF0000' 
+  }}
+>
+  {/* Content */}
+</StyledBox>
+```
+
+## Important Differences from styled-components
+
+### 1. Object Syntax Only
+
+```typescript
+// ✅ Correct - Object syntax
+const Box = styled(View)({
+  padding: 20,
+});
+
+// ❌ Wrong - Template literal syntax not supported
+const Box = styled(View)`
+  padding: 20px;
+`;
+```
+
+### 2. Dollar Sign Props Convention
+
+Use `$` prefix for custom props to prevent forwarding:
+
+```typescript
+// ✅ Good - $ prefix prevents prop forwarding
+const Box = styled(View)<{ $variant: string }>({
+  backgroundColor: ({ $variant }) => $variant === 'dark' ? '#000' : '#FFF',
+});
+
+<Box $variant="dark" />
+
+// ❌ Avoid - prop will be forwarded to View
+const Box = styled(View)<{ variant: string }>({
+  backgroundColor: ({ variant }) => variant === 'dark' ? '#000' : '#FFF',
+});
+```
+
+### 3. Style Arrays
+
+Multiple styles are flattened into an array:
+
+```typescript
+const Box = styled(View)({
+  padding: 20,
+});
+
+// Styles are combined in an array
+<Box style={{ marginTop: 10 }}>
+  {/* style = [{ padding: 20 }, { marginTop: 10 }] */}
+</Box>
+```
+
+## Performance Optimization
+
+### React.memo Integration
+
+All styled components are automatically wrapped with `React.memo` using fast comparison:
+
+```typescript
+import isEqual from 'react-fast-compare';
+
+// Components only re-render when props actually change
+const MemoizedComponent = React.memo(StyledComponent, isEqual);
+```
+
+### Avoiding Re-renders
+
+Extract static styles and use prop functions only when needed:
+
+```typescript
+// ✅ Good - Static styles
+const Box = styled(View)({
+  borderRadius: 12,
+  padding: 16,
+});
+
+// ❌ Avoid - Unnecessary function
+const Box = styled(View)(() => ({
+  borderRadius: 12,
+  padding: 16,
+}));
+```
+
+## Common Patterns
+
+### Conditional Styles
+
+```typescript
+interface ButtonProps {
+  $disabled?: boolean;
+  $variant: 'primary' | 'secondary';
+}
+
+const Button = styled(Pressable)<ButtonProps>({
+  padding: ({ $variant }) => ($variant === 'primary' ? 16 : 12),
+  backgroundColor: ({ $disabled, $variant }) => {
+    if ($disabled) return '#CCCCCC';
+    return $variant === 'primary' ? '#007AFF' : '#8E8E93';
+  },
+  opacity: ({ $disabled }) => ($disabled ? 0.5 : 1),
+});
+```
+
+### Responsive Styles
+
+```typescript
+import { Dimensions } from 'react-native';
+
+const { width } = Dimensions.get('window');
+const isSmallScreen = width < 375;
+
+const ResponsiveBox = styled(View)({
+  padding: isSmallScreen ? 12 : 20,
+  fontSize: isSmallScreen ? 14 : 16,
+});
+```
+
+### Platform-Specific Styles
+
+```typescript
+import { Platform } from 'react-native';
+
+const PlatformBox = styled(View)({
+  padding: 16,
+  ...Platform.select({
+    ios: {
+      shadowColor: '#000',
+      shadowOpacity: 0.1,
+      shadowRadius: 10,
+    },
+    android: {
+      elevation: 4,
+    },
+  }),
+});
+```
+
+## Best Practices
+
+### 1. Colocate Styled Components
+
+Define styled components near their usage:
+
+```typescript
+// MyComponent.tsx
+import styled from '@/framework/ui/styled-thing';
+import { View, Text } from 'react-native';
+
+const Container = styled(View)({
+  padding: 20,
+});
+
+const Title = styled(Text)({
+  fontSize: 20,
+  fontWeight: 'bold',
+});
+
+export function MyComponent() {
+  return (
+    <Container>
+      <Title>Hello</Title>
+    </Container>
+  );
+}
+```
+
+### 2. Use TypeScript
+
+Always type your styled component props:
+
+```typescript
+interface BoxProps {
+  $variant: 'primary' | 'secondary';
+  $size?: 'small' | 'medium' | 'large';
+}
+
+const Box = styled(View)<BoxProps>({
+  padding: ({ $size = 'medium' }) => {
+    switch ($size) {
+      case 'small': return 8;
+      case 'large': return 24;
+      default: return 16;
+    }
+  },
+});
+```
+
+### 3. Prefer Design System Components
+
+Use design system components over styled-thing when possible:
+
+```typescript
+// ✅ Preferred - Uses design system
+import { Box, Text } from '@/design-system';
+
+<Box padding="20px" background="surfacePrimary">
+  <Text size="17pt" weight="semibold" color="label">
+    Hello
+  </Text>
+</Box>
+
+// ⚠️ Only when design system doesn't cover the use case
+import styled from '@/framework/ui/styled-thing';
+
+const CustomComponent = styled(View)({
+  /* custom styles */
+});
+```
+
+### 4. Extract Complex Style Logic
+
+```typescript
+function getButtonStyles(variant: string, disabled: boolean) {
+  return {
+    backgroundColor: disabled ? '#CCC' : variant === 'primary' ? '#007AFF' : '#8E8E93',
+    opacity: disabled ? 0.5 : 1,
+  };
+}
+
+const Button = styled(Pressable)<{ $variant: string; $disabled: boolean }>({
+  padding: 16,
+  borderRadius: 12,
+  ...getButtonStyles,
+});
+```
+
+## Migrating from styled-components
+
+If you're familiar with styled-components, here are the key changes:
+
+| Feature | styled-components | styled-thing |
+|---------|-------------------|-------------|
+| Syntax | Template literals | Object syntax only |
+| Prop prefix | `$` optional | `$` recommended |
+| Theme access | `${p => p.theme}` | `({ theme }) => theme` |
+| Memoization | Manual | Automatic with fast-compare |
+| shouldForwardProp | `.withConfig()` | `.withConfig()` |
+| attrs | `.attrs()` | `.attrs()` |
+
+## Aliases
+
+`styled-thing` provides aliases for all React Native components:
+
+```typescript
+import styled from '@/framework/ui/styled-thing';
+
+// All React Native components are available
+const StyledView = styled.View({ /* styles */ });
+const StyledText = styled.Text({ /* styles */ });
+const StyledScrollView = styled.ScrollView({ /* styles */ });
+const StyledPressable = styled.Pressable({ /* styles */ });
+// etc.
+```

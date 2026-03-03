@@ -1,0 +1,585 @@
+---
+title: Backup & Restore
+description: Cloud backup, manual backup, and wallet recovery features
+---
+
+Rainbow provides multiple backup options to ensure you never lose access to your wallet, including automatic cloud backups and manual seed phrase storage.
+
+## Backup Methods
+
+Rainbow supports two primary backup methods:
+
+### Cloud Backup (Recommended)
+- **iOS**: Automatic iCloud backup
+- **Android**: Google Drive backup
+- **Encrypted**: AES-256 encryption with user password
+- **Automatic**: Backs up after wallet changes
+- **Multiple wallets**: All wallets backed up together
+
+### Manual Backup
+- **Seed phrase**: 12 or 24 word recovery phrase
+- **Private key**: Per-account private key export
+- **Offline storage**: User responsible for secure storage
+- **Universal**: Works on any compatible wallet
+
+<Warning>
+  Always maintain both cloud AND offline backups. Cloud services can fail, and offline backups can be lost. Redundancy is critical for wallet security.
+</Warning>
+
+## Cloud Backup Architecture
+
+### Backup State Management
+
+Rainbow uses a dedicated store for backup operations:
+
+```typescript
+// From src/state/backups/backups.ts
+enum CloudBackupState {
+  Initializing = 'initializing',
+  Syncing = 'syncing',
+  Fetching = 'fetching',
+  Ready = 'ready',
+  NotAvailable = 'not_available',
+  InProgress = 'in_progress',
+  Error = 'error',
+  Success = 'success',
+}
+
+interface BackupsStore {
+  status: CloudBackupState;
+  backups: CloudBackups;
+  mostRecentBackup: BackupFile | undefined;
+  password: string;
+  
+  syncAndFetchBackups: () => Promise<{ success: boolean }>;
+  setBackups: (backups: CloudBackups) => void;
+}
+```
+
+### Backup File Structure
+
+```typescript
+interface BackupFile {
+  isDirectory: boolean;
+  isFile: boolean;
+  lastModified: string;  // ISO timestamp
+  name: string;          // backup_${timestamp}.json
+  path: string;          // Cloud storage path
+  size: number;          // File size in bytes
+  uri: string;           // Cloud URI
+}
+
+interface BackupUserData {
+  wallets: AllRainbowWallets; // All wallet data
+}
+```
+
+## Creating Cloud Backups
+
+<Steps>
+  <Step title="Enable Cloud Backup">
+    First-time setup:
+    - Navigate to Settings > Backup
+    - Choose "Back Up to Cloud"
+    - iOS: Sign in to iCloud (if not already)
+    - Android: Sign in to Google account
+  </Step>
+  
+  <Step title="Set Backup Password">
+    Create a strong password:
+    - Minimum 8 characters recommended
+    - Used to encrypt backup data
+    - Required for restoration
+    - **Store this password securely!**
+  </Step>
+  
+  <Step title="Verify Backup">
+    Rainbow will:
+    - Encrypt wallet data with password
+    - Upload to cloud storage (iCloud/Google Drive)
+    - Verify upload succeeded
+    - Display confirmation
+  </Step>
+  
+  <Step title="Automatic Updates">
+    Future backups happen automatically:
+    - When creating new wallets
+    - When adding new accounts
+    - When importing wallets
+    - Manual backup option always available
+  </Step>
+</Steps>
+
+### Backup Implementation
+
+```typescript
+// From src/model/backup.ts
+const encryptAndSaveDataToCloud = async (
+  data: Record<string, unknown>,
+  password: string,
+  filename: string
+) => {
+  // 1. Encrypt data with AES-256
+  const encryptedData = await encryptor.encrypt(
+    password, 
+    JSON.stringify(data)
+  );
+  
+  // 2. Normalize filename for platform
+  const backupFilename = IS_ANDROID 
+    ? normalizeAndroidBackupFilename(filename) 
+    : filename;
+  
+  // 3. Write to local storage first
+  const path = `${RNFS.DocumentDirectoryPath}/${backupFilename}`;
+  await RNFS.writeFile(path, encryptedData, 'utf8');
+  
+  // 4. Upload to cloud storage
+  const sourceUri = { path };
+  const destinationPath = `${REMOTE_BACKUP_WALLET_DIR}/${backupFilename}`;
+  const mimeType = 'application/json';
+  
+  await RNCloudFs.copyToCloud({
+    sourcePath: sourceUri,
+    targetPath: destinationPath,
+    mimeType,
+    scope: 'hidden',
+  });
+  
+  // 5. Clean up local file
+  await RNFS.unlink(path);
+  
+  return filename;
+};
+```
+
+## Restoring from Cloud Backup
+
+### Restoration Process
+
+<Steps>
+  <Step title="Install Rainbow">
+    Install Rainbow on new or reset device
+  </Step>
+  
+  <Step title="Choose Restore Option">
+    On welcome screen:
+    - Tap "Restore from Backup"
+    - Select cloud backup method
+    - iOS: Sign in to iCloud
+    - Android: Sign in to Google account
+  </Step>
+  
+  <Step title="Select Backup">
+    Rainbow will:
+    - Fetch available backups from cloud
+    - Display backup list with timestamps
+    - Show most recent backup first
+    - Allow selection of specific backup
+  </Step>
+  
+  <Step title="Enter Password">
+    Provide backup password:
+    - Same password used when creating backup
+    - Used to decrypt wallet data
+    - Failed attempts shown as errors
+  </Step>
+  
+  <Step title="Restoration Complete">
+    Rainbow will:
+    - Decrypt and restore all wallets
+    - Restore all accounts
+    - Restore wallet metadata (names, colors)
+    - Refresh ENS names
+    - Fetch current balances
+  </Step>
+</Steps>
+
+### Restoration Implementation
+
+```typescript
+const getDataFromCloud = async (
+  backupPassword: BackupPassword,
+  filename: string
+) => {
+  // 1. Fetch encrypted backup from cloud
+  const path = `${REMOTE_BACKUP_WALLET_DIR}/${filename}`;
+  const encryptedData = await RNCloudFs.getFromCloud({
+    path,
+    scope: 'hidden',
+  });
+  
+  if (!encryptedData) {
+    throw new Error(CLOUD_BACKUP_ERRORS.ERROR_GETTING_ENCRYPTED_DATA);
+  }
+  
+  // 2. Decrypt with user password
+  let decryptedData;
+  try {
+    decryptedData = await encryptor.decrypt(
+      backupPassword,
+      encryptedData
+    );
+  } catch (error) {
+    throw new Error(CLOUD_BACKUP_ERRORS.ERROR_DECRYPTING_DATA);
+  }
+  
+  // 3. Parse and validate
+  const parsedData = JSON.parse(decryptedData);
+  
+  return parsedData;
+};
+```
+
+## PIN-Protected Backups (Android)
+
+Android backups can use PIN instead of password:
+
+### Creating PIN Backup
+
+```typescript
+// PIN must be 4 digits
+const PIN_REGEX = /^\d{4}$/;
+
+const createPINBackup = async (pin: string) => {
+  // Validate PIN format
+  if (!PIN_REGEX.test(pin)) {
+    throw new Error('PIN must be 4 digits');
+  }
+  
+  // Authenticate and create PIN
+  await maybeAuthenticateWithPINAndCreateIfNeeded(pin);
+  
+  // Use PIN as encryption password
+  await encryptAndSaveDataToCloud(walletData, pin, filename);
+};
+```
+
+### PIN vs Password
+
+<Tabs>
+  <Tab title="PIN (4 digits)">
+    **Advantages:**
+    - Quick to enter
+    - Easy to remember
+    - Biometric fallback
+    
+    **Disadvantages:**
+    - Less secure (10,000 combinations)
+    - Android only
+    - Requires device biometrics
+  </Tab>
+  
+  <Tab title="Password">
+    **Advantages:**
+    - Much more secure
+    - Works on all platforms
+    - No biometric dependency
+    - Can use password manager
+    
+    **Disadvantages:**
+    - Harder to remember
+    - More time to enter
+    - Risk of forgetting
+  </Tab>
+</Tabs>
+
+<Note>
+  We recommend using a strong password over PIN for maximum security, especially for wallets holding significant value.
+</Note>
+
+## Manual Backup (Seed Phrase)
+
+### Viewing Seed Phrase
+
+<Steps>
+  <Step title="Navigate to Wallet Settings">
+    Settings > Wallets > Select Wallet > Show Recovery Phrase
+  </Step>
+  
+  <Step title="Authenticate">
+    Verify with biometrics or device PIN
+  </Step>
+  
+  <Step title="Write Down Phrase">
+    - Write all words in order
+    - Double-check spelling
+    - Store in secure location
+    - Never take photos or screenshots
+  </Step>
+  
+  <Step title="Verify Backup">
+    - Rainbow may ask you to verify
+    - Re-enter words in random order
+    - Confirms you recorded correctly
+  </Step>
+</Steps>
+
+<Warning>
+  **Never share your seed phrase with anyone!** Rainbow will never ask for your seed phrase. Anyone with your seed phrase has complete access to your funds.
+</Warning>
+
+### Restoring from Seed Phrase
+
+<Steps>
+  <Step title="Choose Import Option">
+    On welcome screen or in Settings:
+    - Tap "Import Wallet"
+    - Select "Recovery Phrase"
+  </Step>
+  
+  <Step title="Enter Seed Phrase">
+    - Type or paste all words
+    - Words must be in correct order
+    - Validate each word from BIP-39 wordlist
+  </Step>
+  
+  <Step title="Set Wallet Details">
+    - Choose wallet name
+    - Select color theme
+    - Set up cloud backup (optional)
+  </Step>
+  
+  <Step title="Wallet Restored">
+    Rainbow will:
+    - Derive all accounts from seed
+    - Scan for account activity
+    - Fetch current balances
+    - Restore wallet fully
+  </Step>
+</Steps>
+
+## Backup Status Tracking
+
+Rainbow tracks backup status per wallet:
+
+```typescript
+// From src/state/wallets/walletsStore.ts
+setWalletBackedUp: (
+  id: RainbowWallet['id'],
+  method: RainbowWallet['backupType'],
+  backupFile?: RainbowWallet['backupFile']
+) => {
+  const { wallets } = get();
+  const wallet = wallets[id];
+  
+  if (!wallet) return;
+  
+  const updatedWallet = {
+    ...wallet,
+    backedUp: true,
+    backupDate: Date.now(),
+    backupFile,
+    backupType: method,
+  };
+  
+  saveAllWallets({
+    ...wallets,
+    [id]: updatedWallet,
+  });
+}
+```
+
+### Backup Types
+
+```typescript
+enum WalletBackupTypes {
+  cloud = 'cloud',        // iCloud/Google Drive
+  manual = 'manual',      // Seed phrase recorded
+}
+```
+
+## Cloud Backup Sync
+
+Rainbow periodically syncs with cloud storage:
+
+```typescript
+syncAndFetchBackups: async (retryOnFailure = true, retryCount = 0) => {
+  const { status } = get();
+  
+  // Don't sync if already syncing
+  if (returnEarlyIfLockedStates.includes(status)) {
+    return { success: false };
+  }
+  
+  set({ status: CloudBackupState.Syncing });
+  
+  try {
+    // Sync cloud storage state
+    if (IS_ANDROID) {
+      await syncCloud();
+    }
+    
+    set({ status: CloudBackupState.Fetching });
+    
+    // Fetch all backups
+    const backups = await fetchAllBackups();
+    
+    // Find most recent
+    const mostRecentBackup = getMostRecentCloudBackup(backups.files);
+    
+    set({
+      backups,
+      mostRecentBackup,
+      status: CloudBackupState.Ready,
+    });
+    
+    return { success: true };
+  } catch (error) {
+    // Retry logic
+    if (retryOnFailure && retryCount < MAX_RETRIES) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      return syncAndFetchBackups(true, retryCount + 1);
+    }
+    
+    set({ status: CloudBackupState.Error });
+    return { success: false };
+  }
+}
+```
+
+## Error Handling
+
+Common backup errors and solutions:
+
+### Cloud Backup Errors
+
+```typescript
+export const CLOUD_BACKUP_ERRORS = {
+  ERROR_DECRYPTING_DATA: 'Error decrypting data',
+  ERROR_GETTING_ENCRYPTED_DATA: 'Error getting encrypted data!',
+  GENERAL_ERROR: 'Backup failed',
+  INTEGRITY_CHECK_FAILED: 'Backup integrity check failed',
+  KEYCHAIN_ACCESS_ERROR: "Couldn't read items from keychain",
+  NO_BACKUPS_FOUND: 'No backups found',
+  SPECIFIC_BACKUP_NOT_FOUND: 'No backup found with that name',
+  MISSING_PIN: 'The PIN code you entered is invalid',
+  WRONG_PIN: 'The PIN code you entered is wrong',
+};
+```
+
+<AccordionGroup>
+  <Accordion title="Wrong Password/PIN">
+    **Error**: "Error decrypting data" or "Wrong PIN"
+    
+    **Solutions**:
+    - Verify password/PIN is correct
+    - Check for typos (case-sensitive)
+    - Try different backup file
+    - Use seed phrase as fallback
+  </Accordion>
+  
+  <Accordion title="No Cloud Access">
+    **Error**: "Cloud backup not available"
+    
+    **Solutions**:
+    - iOS: Enable iCloud Drive in Settings
+    - Android: Sign in to Google account
+    - Check network connection
+    - Verify cloud storage quota
+  </Accordion>
+  
+  <Accordion title="Backup Not Found">
+    **Error**: "No backups found"
+    
+    **Solutions**:
+    - Verify correct cloud account
+    - Check backup was created successfully
+    - Look for backup on different device
+    - Restore from seed phrase instead
+  </Accordion>
+  
+  <Accordion title="Corrupted Backup">
+    **Error**: "Integrity check failed"
+    
+    **Solutions**:
+    - Try older backup file
+    - Restore from seed phrase
+    - Contact support if needed
+    - Create new wallet and transfer funds
+  </Accordion>
+</AccordionGroup>
+
+## Platform-Specific Details
+
+### iOS Cloud Backup
+
+- **Storage**: iCloud Drive hidden folder
+- **Path**: `rainbow.me/wallet-backups/`
+- **Authentication**: Automatic with iCloud login
+- **Sync**: Automatic across all iCloud devices
+
+### Android Cloud Backup
+
+- **Storage**: Google Drive app data folder
+- **Path**: Hidden application storage
+- **Authentication**: Google account sign-in required
+- **Sync**: Manual sync triggers
+- **Logout**: `logoutFromGoogleDrive()` available
+
+```typescript
+// Android-specific features
+export async function getGoogleAccountUserData(): Promise<GoogleDriveUserData> {
+  if (!IS_ANDROID) return;
+  
+  return RNCloudFs.getCurrentlySignedInUserData({ checkPermissions: true });
+}
+
+export async function logoutFromGoogleDrive() {
+  IS_ANDROID && RNCloudFs.logout();
+}
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Multiple Backup Methods">
+    Always maintain redundant backups:
+    - Cloud backup for convenience
+    - Seed phrase written down offline
+    - Consider metal seed phrase backup for long-term
+  </Step>
+  
+  <Step title="Test Restoration">
+    Verify backups work:
+    - Restore on test device or wallet
+    - Verify all accounts present
+    - Check you can access funds
+    - Do this BEFORE losing access
+  </Step>
+  
+  <Step title="Secure Storage">
+    Store backup materials safely:
+    - Seed phrase: Fireproof safe, safety deposit box
+    - Password: Password manager (not cloud notes!)
+    - Never in photos, screenshots, or cloud notes
+  </Step>
+  
+  <Step title="Regular Updates">
+    Keep backups current:
+    - Backup after creating new wallets
+    - Backup after importing accounts
+    - Verify cloud backup after changes
+    - Update offline seed phrase records
+  </Step>
+</Steps>
+
+<Warning>
+  If you lose both your device AND your backup materials, your funds are **permanently lost**. There is no recovery mechanism. Treat your backups as seriously as cash.
+</Warning>
+
+## Related Features
+
+<CardGroup cols={2}>
+  <Card title="Wallet Overview" icon="wallet" href="/features/wallet/overview">
+    Understanding wallet types and management
+  </Card>
+  
+  <Card title="Account Management" icon="users" href="/features/wallet/accounts">
+    Creating and managing accounts
+  </Card>
+  
+  <Card title="Hardware Wallets" icon="usb-drive" href="/features/wallet/hardware-wallets">
+    Ledger hardware wallet integration
+  </Card>
+</CardGroup>

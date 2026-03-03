@@ -1,0 +1,616 @@
+---
+title: Logging System
+description: Structured logging with Sentry integration and debug contexts
+---
+
+Rainbow uses a custom logging system built on Sentry for error tracking, with support for debug contexts, log levels, and in-memory log dumps.
+
+## Overview
+
+The logging system provides:
+- **Structured logging** - Consistent log format with metadata
+- **Sentry integration** - Automatic error reporting to Sentry
+- **Log levels** - Debug, Info, Warn, Error, Fatal
+- **Debug contexts** - Filter logs by component/feature
+- **Console transport** - Development logging
+- **In-memory dumps** - Export logs for debugging
+- **Service loggers** - Scoped loggers for integrations
+
+## Logger Class
+
+```typescript src/logger/index.ts
+import * as Sentry from '@sentry/react-native';
+import { device } from '@/storage';
+
+export enum LogLevel {
+  Debug = 'debug',
+  Info = 'info',
+  Log = 'log',
+  Warn = 'warn',
+  Error = 'error',
+  Fatal = 'fatal',
+}
+
+export class Logger {
+  LogLevel = LogLevel;
+  DebugContext = DebugContext;
+
+  enabled: boolean;
+  level: LogLevel;
+  transports: Transport[] = [];
+
+  constructor({
+    enabled = !device.get(['doNotTrack']),
+    level = LOG_LEVEL as LogLevel,
+    debug = LOG_DEBUG || '',
+  } = {}) {
+    this.enabled = enabled !== false;
+    this.level = debug ? LogLevel.Debug : level ?? LogLevel.Warn;
+  }
+
+  debug(message: string, metadata?: Metadata, context?: string) {
+    if (context && !this.debugContextRegexes.find(reg => reg.test(context))) return;
+    this.transport(LogLevel.Debug, message, metadata);
+  }
+
+  info(message: string, metadata?: Metadata) {
+    this.transport(LogLevel.Info, message, metadata);
+  }
+
+  log(message: string, metadata?: Metadata) {
+    this.transport(LogLevel.Log, message, metadata);
+  }
+
+  warn(message: string, metadata?: Metadata) {
+    this.transport(LogLevel.Warn, message, metadata);
+  }
+
+  error(error: RainbowError, metadata?: Metadata) {
+    this.transport(LogLevel.Error, error, metadata);
+  }
+
+  disable() { this.enabled = false; }
+  enable() { this.enabled = true; }
+}
+
+export const logger = new Logger();
+```
+
+## Basic Usage
+
+### Log Levels
+
+```typescript
+import { logger } from '@/logger';
+
+// Debug - verbose logging (dev only)
+logger.debug('Fetching user data', { userId: '123' });
+
+// Info - general information
+logger.info('User logged in', { username: 'alice' });
+
+// Log - important events
+logger.log('Payment processed', { amount: 100 });
+
+// Warn - warnings
+logger.warn('API rate limit approaching', { remaining: 10 });
+
+// Error - errors (requires RainbowError)
+logger.error(new RainbowError('Failed to fetch data'), { endpoint: '/api/user' });
+```
+
+### RainbowError
+
+Always use `RainbowError` for error logging:
+
+```typescript
+import { RainbowError } from '@/logger';
+
+try {
+  await fetchData();
+} catch (error) {
+  logger.error(
+    new RainbowError('Failed to fetch data', error),
+    { endpoint: '/api/data' }
+  );
+}
+```
+
+### With Cause Chain
+
+```typescript
+import { RainbowError } from '@/logger';
+
+try {
+  await processPayment();
+} catch (error) {
+  const wrapped = new RainbowError('Payment processing failed', error);
+  logger.error(wrapped);
+  
+  // Error chain: "Payment processing failed ↠ Network timeout"
+}
+```
+
+## Metadata
+
+Attach structured data to logs:
+
+```typescript
+type Metadata = {
+  // Sentry breadcrumb type
+  type?: 'default' | 'debug' | 'error' | 'navigation' | 'http' | 'info' | 'query' | 'transaction' | 'ui' | 'user';
+  
+  // Sentry tags
+  tags?: {
+    [key: string]: string | number | boolean;
+  };
+  
+  // Additional data
+  [key: string]: unknown;
+};
+```
+
+### Example
+
+```typescript
+logger.error(
+  new RainbowError('Transaction failed'),
+  {
+    type: 'transaction',
+    tags: {
+      network: 'ethereum',
+      wallet: 'metamask',
+    },
+    txHash: '0x...',
+    gasUsed: 21000,
+  }
+);
+```
+
+## Debug Contexts
+
+Filter debug logs by component:
+
+```bash
+# Enable specific contexts
+LOG_DEBUG=navigation,wallet yarn start
+
+# Enable all contexts
+LOG_DEBUG=* yarn start
+
+# Enable with wildcard
+LOG_DEBUG=swap:* yarn start
+```
+
+### Usage
+
+```typescript
+import { logger, DebugContext } from '@/logger';
+
+// Only logged if LOG_DEBUG includes 'swap'
+logger.debug('Swap initiated', { from: 'ETH', to: 'DAI' }, DebugContext.swap);
+
+// Multiple contexts
+logger.debug('Network request', metadata, 'network:api');
+```
+
+### Define Contexts
+
+```typescript src/logger/debugContext.ts
+export enum DebugContext {
+  wallet = 'wallet',
+  swap = 'swap',
+  navigation = 'navigation',
+  network = 'network',
+  storage = 'storage',
+}
+```
+
+## Transports
+
+Logs are sent to transports based on environment:
+
+### Console Transport (Development)
+
+```typescript src/logger/index.ts
+export const consoleTransport: Transport = (level, message, metadata) => {
+  const timestamp = format(new Date(), 'HH:mm:ss');
+  const extra = Object.keys(metadata).length 
+    ? ' ' + JSON.stringify(metadata, null, '  ') 
+    : '';
+  
+  const color = {
+    [LogLevel.Debug]: colors.magenta,
+    [LogLevel.Info]: colors.default,
+    [LogLevel.Log]: colors.default,
+    [LogLevel.Warn]: colors.yellow,
+    [LogLevel.Error]: colors.red,
+    [LogLevel.Fatal]: colors.red,
+  }[level];
+  
+  const log = level === LogLevel.Error ? console.error : console.log;
+  log(`${timestamp} ${withColor(color)(`[${level.toUpperCase()}]`)} ${message}${extra}`);
+};
+
+if (IS_DEV) {
+  logger.addTransport(consoleTransport);
+}
+```
+
+### Sentry Transport (Production)
+
+```typescript src/logger/index.ts
+export const sentryTransport: Transport = (level, message, { type, tags, ...metadata }) => {
+  const severity: SeverityLevel = {
+    [LogLevel.Debug]: 'debug',
+    [LogLevel.Info]: 'info',
+    [LogLevel.Log]: 'log',
+    [LogLevel.Warn]: 'warning',
+    [LogLevel.Error]: 'error',
+    [LogLevel.Fatal]: 'fatal',
+  }[level];
+
+  if (typeof message === 'string') {
+    // Add breadcrumb
+    Sentry.addBreadcrumb({
+      message,
+      data: metadata,
+      type: type || 'default',
+      level: severity,
+      timestamp: Date.now(),
+    });
+    
+    // Capture as message for log/warn
+    if (level === LogLevel.Log || level === LogLevel.Warn) {
+      Sentry.captureMessage(message, { level: severity, tags, extra: metadata });
+    }
+  } else {
+    // Capture exception
+    Sentry.captureException(message, { tags, extra: metadata });
+  }
+};
+
+if (IS_PROD) {
+  logger.addTransport(sentryTransport);
+}
+```
+
+### Custom Transport
+
+```typescript
+import { logger, type Transport, LogLevel } from '@/logger';
+
+const myTransport: Transport = (level, message, metadata) => {
+  // Send to custom logging service
+  sendToLoggingService({
+    level,
+    message: message.toString(),
+    metadata,
+    timestamp: Date.now(),
+  });
+};
+
+logger.addTransport(myTransport);
+```
+
+## Service Loggers
+
+Create scoped loggers for service integrations:
+
+```typescript
+import { logger } from '@/logger';
+
+const apiLogger = logger.createServiceLogger('API');
+
+// All messages prefixed with [API]:
+apiLogger.debug('Request started', { endpoint: '/users' });
+apiLogger.info('Request completed', { status: 200 });
+apiLogger.warn('Rate limit approaching', { remaining: 10 });
+apiLogger.error('Request failed', { status: 500 });
+```
+
+### Service Logger Interface
+
+```typescript
+type ServiceLogger = {
+  debug(message: string, metadata?: Record<string, unknown>): void;
+  info(message: string, metadata?: Record<string, unknown>): void;
+  warn(message: string, metadata?: Record<string, unknown>): void;
+  error(error: Error | string, metadata?: Record<string, unknown>): void;
+};
+```
+
+## Log Dump
+
+Export in-memory logs for debugging:
+
+```typescript src/logger/logDump.ts
+const LOG_BUFFER_SIZE = 1000;
+const logBuffer: LogEntry[] = [];
+
+type LogEntry = {
+  timestamp: string;
+  level: LogLevel;
+  message: string | RainbowError;
+  metadata: Metadata;
+};
+
+export function push(entry: LogEntry): void {
+  logBuffer.push(entry);
+  
+  // Keep only last N entries
+  if (logBuffer.length > LOG_BUFFER_SIZE) {
+    logBuffer.shift();
+  }
+}
+
+export function dump(): string {
+  return logBuffer
+    .map(entry => `${entry.timestamp} [${entry.level}] ${entry.message}`)
+    .join('\n');
+}
+
+export function clear(): void {
+  logBuffer.length = 0;
+}
+```
+
+### Enable Log Dump
+
+```typescript
+// Enable via experimental flag
+const LOG_PUSH_ENABLED = getExperimentalFlag(LOG_PUSH);
+
+if (LOG_PUSH_ENABLED) {
+  logger.addTransport(consoleTransport);
+  logger.level = LogLevel.Debug;
+}
+```
+
+### Export Logs
+
+```typescript
+import { dump, clear } from '@/logger/logDump';
+
+function exportLogs() {
+  const logs = dump();
+  
+  // Share or save
+  Share.share({ message: logs });
+  
+  // Clear buffer
+  clear();
+}
+```
+
+## Real-World Examples
+
+### API Requests
+
+```typescript
+import { logger, RainbowError } from '@/logger';
+
+const apiLogger = logger.createServiceLogger('API');
+
+async function fetchUser(id: string) {
+  apiLogger.debug('Fetching user', { userId: id });
+  
+  try {
+    const response = await fetch(`/api/users/${id}`);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    
+    const data = await response.json();
+    apiLogger.info('User fetched successfully', { userId: id });
+    
+    return data;
+  } catch (error) {
+    apiLogger.error(
+      new RainbowError('Failed to fetch user', error),
+      {
+        type: 'http',
+        tags: { userId: id },
+        endpoint: `/api/users/${id}`,
+      }
+    );
+    throw error;
+  }
+}
+```
+
+### Store Operations
+
+```typescript
+import { logger, RainbowError } from '@/logger';
+
+const useMyStore = createQueryStore({
+  fetcher: async ({ address }) => {
+    logger.debug('Fetching balance', { address }, 'wallet:balance');
+    
+    try {
+      const balance = await fetchBalance(address);
+      logger.info('Balance fetched', { address, balance });
+      return balance;
+    } catch (error) {
+      logger.error(
+        new RainbowError('Failed to fetch balance', error),
+        { address, type: 'query' }
+      );
+      throw error;
+    }
+  },
+  params: { address: ($) => $(useWalletStore).address },
+});
+```
+
+### Transaction Errors
+
+```typescript
+import { logger, RainbowError } from '@/logger';
+
+async function sendTransaction(tx: Transaction) {
+  try {
+    const result = await executeTransaction(tx);
+    
+    logger.log('Transaction sent', {
+      type: 'transaction',
+      tags: {
+        network: tx.network,
+        asset: tx.asset,
+      },
+      hash: result.hash,
+      gasUsed: result.gasUsed,
+    });
+  } catch (error) {
+    logger.error(
+      new RainbowError('Transaction failed', error),
+      {
+        type: 'transaction',
+        tags: {
+          network: tx.network,
+          asset: tx.asset,
+        },
+        amount: tx.amount,
+        recipient: tx.to,
+      }
+    );
+    throw error;
+  }
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always use RainbowError for errors">
+    Wrap errors in RainbowError to preserve stack traces:
+    
+    ```typescript
+    try {
+      await riskyOperation();
+    } catch (error) {
+      logger.error(
+        new RainbowError('Operation failed', error),
+        { context: 'additional info' }
+      );
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Add meaningful metadata">
+    Include context to help debugging:
+    
+    ```typescript
+    logger.error(
+      new RainbowError('Failed to process'),
+      {
+        userId: user.id,
+        action: 'payment',
+        amount: 100,
+      }
+    );
+    ```
+  </Accordion>
+  
+  <Accordion title="Use appropriate log levels">
+    Choose the right level for each log:
+    
+    - **Debug**: Verbose development info
+    - **Info**: General information
+    - **Log**: Important events
+    - **Warn**: Warnings that need attention
+    - **Error**: Errors that should be fixed
+  </Accordion>
+  
+  <Accordion title="Use debug contexts">
+    Organize debug logs by feature:
+    
+    ```typescript
+    logger.debug('Swap executed', metadata, DebugContext.swap);
+    logger.debug('Route changed', metadata, DebugContext.navigation);
+    ```
+  </Accordion>
+  
+  <Accordion title="Create service loggers">
+    Use scoped loggers for integrations:
+    
+    ```typescript
+    const apiLogger = logger.createServiceLogger('API');
+    const dbLogger = logger.createServiceLogger('Database');
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Testing
+
+### Mock Logger
+
+```typescript
+const mockLogger = {
+  debug: jest.fn(),
+  info: jest.fn(),
+  log: jest.fn(),
+  warn: jest.fn(),
+  error: jest.fn(),
+};
+
+jest.mock('@/logger', () => ({ logger: mockLogger }));
+```
+
+### Test Logging
+
+```typescript
+import { logger } from '@/logger';
+
+describe('API', () => {
+  it('logs errors', async () => {
+    await expect(fetchData()).rejects.toThrow();
+    
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.any(RainbowError),
+      expect.objectContaining({ endpoint: '/api/data' })
+    );
+  });
+});
+```
+
+## Configuration
+
+### Environment Variables
+
+```bash
+# Log level (debug, info, log, warn, error)
+LOG_LEVEL=warn
+
+# Debug contexts (comma-separated)
+LOG_DEBUG=swap,wallet,navigation
+
+# Or all contexts
+LOG_DEBUG=*
+```
+
+### Runtime Configuration
+
+```typescript
+import { logger, LogLevel } from '@/logger';
+
+// Change log level
+logger.level = LogLevel.Debug;
+
+// Enable/disable
+logger.enable();
+logger.disable();
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Architecture Overview" icon="building" href="/architecture/overview">
+    Back to architecture overview
+  </Card>
+  <Card title="State Management" icon="database" href="/architecture/state/overview">
+    Learn about state management
+  </Card>
+</CardGroup>

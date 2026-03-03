@@ -1,122 +1,188 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "Rainbow Wallet",
+  "theme": "almond",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#7A6EF0",
+    "light": "#A69EF8",
+    "dark": "#5643CC"
   },
-  "favicon": "/favicon.svg",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/rainbow-me/rainbow"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/rainbow-me/rainbow",
+      "x": "https://x.com/rainbowdotme"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Getting Started",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Introduction",
             "pages": [
-              "index",
-              "quickstart",
-              "development"
+              "introduction",
+              "features"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Setup",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "setup/prerequisites",
+              "setup/installation",
+              "setup/ios",
+              "setup/android"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Development",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
-            ]
-          },
-          {
-            "group": "AI tools",
-            "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "development/running",
+              "development/building",
+              "development/debugging"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "Architecture",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Overview",
             "pages": [
-              "api-reference/introduction"
+              "architecture/overview",
+              "architecture/project-structure"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "State Management",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "architecture/state/overview",
+              "architecture/state/rainbow-store",
+              "architecture/state/query-store",
+              "architecture/state/derived-store"
+            ]
+          },
+          {
+            "group": "Core Systems",
+            "pages": [
+              "architecture/navigation",
+              "architecture/storage",
+              "architecture/analytics",
+              "architecture/logging"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Features",
+        "groups": [
+          {
+            "group": "Wallet Management",
+            "pages": [
+              "features/wallet/overview",
+              "features/wallet/accounts",
+              "features/wallet/backup-restore",
+              "features/wallet/hardware-wallets"
+            ]
+          },
+          {
+            "group": "Assets & Tokens",
+            "pages": [
+              "features/assets/overview",
+              "features/assets/token-list",
+              "features/assets/nfts",
+              "features/assets/collectibles"
+            ]
+          },
+          {
+            "group": "Swaps & Trading",
+            "pages": [
+              "features/swaps/overview",
+              "features/swaps/quote-fetching",
+              "features/swaps/gas-estimation",
+              "features/swaps/atomic-swaps"
+            ]
+          },
+          {
+            "group": "ENS Integration",
+            "pages": [
+              "features/ens/overview",
+              "features/ens/registration",
+              "features/ens/profiles",
+              "features/ens/avatars"
+            ]
+          },
+          {
+            "group": "DeFi & Positions",
+            "pages": [
+              "features/defi/overview",
+              "features/defi/positions",
+              "features/defi/perps",
+              "features/defi/predictions"
+            ]
+          },
+          {
+            "group": "WalletConnect",
+            "pages": [
+              "features/walletconnect/overview",
+              "features/walletconnect/dapp-connections",
+              "features/walletconnect/signing"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Component Library",
+        "groups": [
+          {
+            "group": "Design System",
+            "pages": [
+              "components/design-system/overview",
+              "components/design-system/layout",
+              "components/design-system/typography",
+              "components/design-system/styling"
+            ]
+          },
+          {
+            "group": "UI Components",
+            "pages": [
+              "components/buttons",
+              "components/sheets",
+              "components/modals",
+              "components/lists"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Contributing",
+        "groups": [
+          {
+            "group": "Guidelines",
+            "pages": [
+              "contributing/overview",
+              "contributing/code-conventions",
+              "contributing/testing",
+              "contributing/pull-requests"
+            ]
+          },
+          {
+            "group": "Resources",
+            "pages": [
+              "contributing/graphql",
+              "contributing/migrations",
+              "contributing/performance"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

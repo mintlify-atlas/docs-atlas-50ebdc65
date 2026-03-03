@@ -1,0 +1,652 @@
+---
+title: createDerivedStore
+description: Read-only stores that compute state from other stores with automatic dependency tracking
+---
+
+`createDerivedStore` creates read-only stores that automatically derive state from one or more source stores. It tracks dependencies and efficiently recomputes only when needed.
+
+## Overview
+
+`createDerivedStore` provides:
+- **Automatic dependency tracking** - Subscribes to stores you access
+- **Efficient recomputation** - Only runs when dependencies change
+- **Proxy-based selectors** - Auto-built selectors for nested properties
+- **Debouncing** - Optional debounce for expensive computations
+- **Type safety** - Full TypeScript inference
+
+## Basic Usage
+
+```typescript
+import { createDerivedStore } from '@/state/internal/createDerivedStore';
+
+const usePortfolioTotal = createDerivedStore(($) => {
+  const tokens = $(useTokensStore).tokens;
+  const prices = $(usePricesStore).prices;
+  
+  return tokens.reduce((total, token) => {
+    const price = prices[token.address] || 0;
+    return total + (token.balance * price);
+  }, 0);
+});
+```
+
+### In Components
+
+```typescript
+function PortfolioHeader() {
+  // Use the entire derived value
+  const total = usePortfolioTotal();
+  
+  return <Text>${total.toFixed(2)}</Text>;
+}
+```
+
+## Type Signature
+
+```typescript
+function createDerivedStore<Derived>(
+  deriveFunction: ($: DeriveGetter) => Derived,
+  optionsOrEqualityFn?: DeriveOptions<Derived> | EqualityFn<Derived>
+): DerivedStore<Derived>;
+```
+
+### Derive Function
+
+The derive function receives a special `$` helper:
+
+```typescript
+type DeriveGetter = {
+  // Selector-based usage
+  <S>(store: Store<S>, selector: (state: S) => Selected, equalityFn?): Selected;
+  
+  // Proxy-based usage (auto-builds selectors)
+  <S>(store: Store<S>): S;
+};
+```
+
+## The `$` Helper
+
+The `$` helper tracks which stores and properties you access:
+
+### Selector-Based
+
+```typescript
+const useDerived = createDerivedStore(($) => {
+  // Specify exactly what to subscribe to
+  const user = $(useUserStore, s => s.user, shallowEqual);
+  const theme = $(useSettingsStore, s => s.appearance.theme);
+  
+  return {
+    greeting: `Hello, ${user.name}!`,
+    isDark: theme === 'dark',
+  };
+});
+```
+
+### Proxy-Based (Auto-Selectors)
+
+```typescript
+const useDerived = createDerivedStore(($) => {
+  // Automatically subscribes to `user` property
+  const { user } = $(useUserStore);
+  
+  // Automatically subscribes to `appearance.theme`
+  const theme = $(useSettingsStore).appearance.theme;
+  
+  return {
+    greeting: `Hello, ${user.name}!`,
+    isDark: theme === 'dark',
+  };
+});
+```
+
+Proxy mode automatically builds efficient selectors for nested property access.
+
+## Real-World Example
+
+Here's how you might derive search results:
+
+```typescript
+const useSearchResults = createDerivedStore(($) => {
+  // Get search query (auto-subscribes to query property)
+  const query = $(useSearchStore).query.trim().toLowerCase();
+  
+  // Get all items (auto-subscribes to items property)
+  const items = $(useItemsStore).items;
+  
+  // Filter items based on query
+  if (!query) return items;
+  
+  return items.filter(item => 
+    item.name.toLowerCase().includes(query) ||
+    item.description.toLowerCase().includes(query)
+  );
+}, {
+  // Use shallow equality for array comparison
+  equalityFn: shallowEqual,
+  // Debounce expensive filtering
+  debounce: 300,
+});
+```
+
+## Options
+
+### Equality Function
+
+Customize when the derived store notifies subscribers:
+
+```typescript
+import { dequal } from 'dequal';
+
+const useStore = createDerivedStore(
+  ($) => {
+    /* ... */
+  },
+  {
+    equalityFn: dequal,  // Deep equality
+  }
+);
+
+// Or pass directly (shorthand)
+const useStore = createDerivedStore(
+  ($) => { /* ... */ },
+  dequal
+);
+```
+
+### Debouncing
+
+Debounce expensive computations:
+
+```typescript
+const useStore = createDerivedStore(
+  ($) => {
+    // Expensive computation
+    return expensiveCalculation($(useSourceStore));
+  },
+  {
+    debounce: 500,  // Wait 500ms after last change
+  }
+);
+
+// Or with lodash debounce options
+const useStore = createDerivedStore(
+  ($) => { /* ... */ },
+  {
+    debounce: {
+      delay: 500,
+      leading: false,
+      trailing: true,
+      maxWait: 1000,
+    },
+  }
+);
+```
+
+### Fast Mode
+
+In fast mode, dependencies are established once and never rebuilt:
+
+```typescript
+const useStore = createDerivedStore(
+  ($) => { /* ... */ },
+  {
+    fastMode: true,  // Don't rebuild subscriptions
+  }
+);
+```
+
+<Warning>
+  Only use fast mode if dependencies never change. Most stores should NOT use this.
+</Warning>
+
+### Keep Alive
+
+Prevent automatic cleanup when no subscribers:
+
+```typescript
+const useStore = createDerivedStore(
+  ($) => { /* ... */ },
+  {
+    keepAlive: true,  // Never unsubscribe from sources
+  }
+);
+```
+
+### Debug Mode
+
+Enable logging to debug derivation:
+
+```typescript
+const useStore = createDerivedStore(
+  ($) => { /* ... */ },
+  {
+    debugMode: true,  // or 'verbose'
+  }
+);
+
+// Console output:
+// [🌀 Initial Derive Complete 🌀]: Created...
+// [🎯 3 Selector Subscriptions 🎯]
+// [📻 Derive Complete 📻]: Notifying 1 watcher
+```
+
+## Derived Store Methods
+
+Derived stores are read-only but expose store methods:
+
+```typescript
+const useDerived = createDerivedStore(/* ... */);
+
+// Get current state
+const state = useDerived.getState();
+
+// Subscribe to changes
+const unsubscribe = useDerived.subscribe((state, prevState) => {
+  console.log('Changed from', prevState, 'to', state);
+});
+
+// Flush pending debounced updates
+useDerived.flushUpdates();
+
+// Clean up (unsubscribe from all sources)
+useDerived.destroy();
+```
+
+## Multiple Source Stores
+
+```typescript
+const useUserProfile = createDerivedStore(($) => {
+  const user = $(useUserStore).user;
+  const settings = $(useSettingsStore).settings;
+  const wallet = $(useWalletStore).selectedWallet;
+  
+  return {
+    name: user.name,
+    email: user.email,
+    theme: settings.theme,
+    walletAddress: wallet.address,
+  };
+});
+```
+
+The store automatically:
+1. Subscribes to all three source stores
+2. Recomputes when any dependency changes
+3. Unsubscribes when no components use it
+
+## Nested Derivations
+
+Derived stores can derive from other derived stores:
+
+```typescript
+// Base derived store
+const useFilteredTokens = createDerivedStore(($) => {
+  const tokens = $(useTokensStore).tokens;
+  const hideSmallBalances = $(useSettingsStore).hideSmallBalances;
+  
+  if (!hideSmallBalances) return tokens;
+  return tokens.filter(t => t.balance > 0.01);
+});
+
+// Derived from derived
+const useTotalValue = createDerivedStore(($) => {
+  const tokens = $(useFilteredTokens);  // Subscribe to derived store
+  const prices = $(usePricesStore).prices;
+  
+  return tokens.reduce((sum, token) => {
+    return sum + (token.balance * prices[token.address]);
+  }, 0);
+});
+```
+
+## Performance Optimization
+
+### Selective Subscriptions
+
+Only subscribe to what you need:
+
+```typescript
+// ✅ Good - subscribes only to specific properties
+const useDerived = createDerivedStore(($) => {
+  const userName = $(useUserStore).user.name;
+  return `Hello, ${userName}`;
+});
+
+// ❌ Bad - subscribes to entire user object
+const useDerived = createDerivedStore(($) => {
+  const user = $(useUserStore).user;
+  return `Hello, ${user.name}`;
+});
+```
+
+### Memoization Within Derivation
+
+```typescript
+const useExpensiveCalc = createDerivedStore(($) => {
+  const data = $(useDataStore).data;
+  
+  // Memoize expensive calculation
+  return useMemo(() => {
+    return expensiveTransform(data);
+  }, [data]);
+});
+```
+
+### Debounce Rapid Changes
+
+```typescript
+const useSearchResults = createDerivedStore(
+  ($) => {
+    const query = $(useSearchStore).query;
+    const items = $(useItemsStore).items;
+    return filterItems(items, query);
+  },
+  {
+    debounce: 300,  // Wait for typing to stop
+  }
+);
+```
+
+## Common Patterns
+
+### Filtered Lists
+
+```typescript
+const useActiveTokens = createDerivedStore(($) => {
+  const tokens = $(useTokensStore).tokens;
+  const showHidden = $(useSettingsStore).showHiddenTokens;
+  
+  return tokens.filter(token => 
+    showHidden || !token.isHidden
+  );
+}, shallowEqual);
+```
+
+### Aggregated Metrics
+
+```typescript
+const usePortfolioMetrics = createDerivedStore(($) => {
+  const positions = $(usePositionsStore).positions;
+  const prices = $(usePricesStore).prices;
+  
+  const totalValue = positions.reduce((sum, pos) => {
+    return sum + (pos.amount * prices[pos.asset]);
+  }, 0);
+  
+  const totalPnL = positions.reduce((sum, pos) => {
+    return sum + pos.unrealizedPnL;
+  }, 0);
+  
+  return {
+    totalValue,
+    totalPnL,
+    pnlPercent: (totalPnL / totalValue) * 100,
+  };
+});
+```
+
+### Computed Flags
+
+```typescript
+const useAppState = createDerivedStore(($) => {
+  const isAuthenticated = $(useAuthStore).isAuthenticated;
+  const hasWallet = $(useWalletStore).wallets.length > 0;
+  const isOnboarding = $(useOnboardingStore).isActive;
+  
+  return {
+    canAccessApp: isAuthenticated && hasWallet && !isOnboarding,
+    showOnboarding: !hasWallet || isOnboarding,
+    needsAuth: !isAuthenticated,
+  };
+});
+```
+
+### Sorted Lists
+
+```typescript
+const useSortedTokens = createDerivedStore(($) => {
+  const tokens = $(useTokensStore).tokens;
+  const sortBy = $(useSettingsStore).tokenSortBy;
+  const prices = $(usePricesStore).prices;
+  
+  return [...tokens].sort((a, b) => {
+    switch (sortBy) {
+      case 'value':
+        const aValue = a.balance * prices[a.address];
+        const bValue = b.balance * prices[b.address];
+        return bValue - aValue;
+      case 'balance':
+        return b.balance - a.balance;
+      case 'name':
+        return a.name.localeCompare(b.name);
+      default:
+        return 0;
+    }
+  });
+}, shallowEqual);
+```
+
+## Lifecycle
+
+### Automatic Subscription Management
+
+```typescript
+const useDerived = createDerivedStore(($) => {
+  // When first component mounts:
+  // 1. Run derive function
+  // 2. Subscribe to all accessed stores
+  // 3. Start listening for changes
+  
+  return $(useSourceStore).data;
+});
+
+// When last component unmounts:
+// 1. Unsubscribe from all source stores
+// 2. Clean up internal state
+// 3. Stop listening for changes
+```
+
+### Manual Cleanup
+
+```typescript
+const useDerived = createDerivedStore(/* ... */);
+
+// Manually destroy if needed
+useDerived.destroy();
+```
+
+## Testing
+
+```typescript
+import { createDerivedStore } from '@/state/internal/createDerivedStore';
+import { useTokensStore } from '@/state/tokens';
+import { usePricesStore } from '@/state/prices';
+
+describe('usePortfolioTotal', () => {
+  it('calculates total value', () => {
+    // Set up source stores
+    useTokensStore.setState({
+      tokens: [
+        { address: '0x1', balance: 10 },
+        { address: '0x2', balance: 5 },
+      ],
+    });
+    
+    usePricesStore.setState({
+      prices: {
+        '0x1': 100,
+        '0x2': 200,
+      },
+    });
+    
+    // Check derived value
+    const total = usePortfolioTotal.getState();
+    expect(total).toBe(2000); // (10 * 100) + (5 * 200)
+  });
+  
+  it('updates when sources change', () => {
+    let callCount = 0;
+    
+    const unsubscribe = usePortfolioTotal.subscribe(() => {
+      callCount++;
+    });
+    
+    // Update source
+    useTokensStore.setState({
+      tokens: [{ address: '0x1', balance: 20 }],
+    });
+    
+    expect(callCount).toBe(1);
+    unsubscribe();
+  });
+});
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Keep derivations pure">
+    Derivations should be pure functions without side effects:
+    
+    ```typescript
+    // ✅ Good - pure
+    const useDerived = createDerivedStore(($) => {
+      const data = $(useStore).data;
+      return data.map(transform);
+    });
+    
+    // ❌ Bad - side effects
+    const useDerived = createDerivedStore(($) => {
+      const data = $(useStore).data;
+      logger.log('Data changed');
+      return data;
+    });
+    ```
+  </Accordion>
+  
+  <Accordion title="Use appropriate equality functions">
+    Choose equality functions based on your data:
+    
+    ```typescript
+    // Primitives
+    equalityFn: Object.is
+    
+    // Shallow objects/arrays
+    equalityFn: shallowEqual
+    
+    // Deep objects/arrays
+    equalityFn: dequal
+    ```
+  </Accordion>
+  
+  <Accordion title="Debounce expensive computations">
+    Add debouncing for heavy operations:
+    
+    ```typescript
+    createDerivedStore(
+      ($) => expensiveCalculation($(useStore)),
+      { debounce: 300 }
+    );
+    ```
+  </Accordion>
+  
+  <Accordion title="Don't overuse derived stores">
+    Not everything needs to be derived. Sometimes a simple selector is better:
+    
+    ```typescript
+    // ❌ Overkill
+    const useUserName = createDerivedStore(($) => 
+      $(useUserStore).user.name
+    );
+    
+    // ✅ Better
+    const userName = useUserStore((s) => s.user.name);
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Comparison with Selectors
+
+| Feature | Derived Store | Selector |
+|---------|--------------|----------|
+| **Multiple sources** | ✅ Easy | ❌ Complex |
+| **Reusable** | ✅ Yes | ✅ Yes |
+| **Memoization** | ✅ Automatic | ❌ Manual |
+| **Subscription** | ✅ Managed | ❌ Multiple |
+| **Type inference** | ✅ Full | ✅ Full |
+| **Overhead** | Minimal | None |
+
+Use derived stores when:
+- Combining multiple stores
+- Complex transformations
+- Reused across components
+
+Use selectors when:
+- Single store access
+- Simple property access
+- Component-specific logic
+
+## Advanced Example
+
+Here's a complex real-world example:
+
+```typescript
+const usePortfolioDashboard = createDerivedStore(($) => {
+  // Get data from multiple stores
+  const tokens = $(useTokensStore).tokens;
+  const prices = $(usePricesStore).prices;
+  const settings = $(useSettingsStore);
+  const { hideSmallBalances, sortBy } = settings;
+  
+  // Filter tokens
+  let filteredTokens = hideSmallBalances
+    ? tokens.filter(t => t.balance * prices[t.address] > 1)
+    : tokens;
+  
+  // Calculate values
+  const tokensWithValue = filteredTokens.map(token => ({
+    ...token,
+    price: prices[token.address] || 0,
+    value: token.balance * (prices[token.address] || 0),
+  }));
+  
+  // Sort
+  const sorted = [...tokensWithValue].sort((a, b) => {
+    switch (sortBy) {
+      case 'value': return b.value - a.value;
+      case 'balance': return b.balance - a.balance;
+      case 'name': return a.name.localeCompare(b.name);
+      default: return 0;
+    }
+  });
+  
+  // Aggregate metrics
+  const total = sorted.reduce((sum, t) => sum + t.value, 0);
+  const count = sorted.length;
+  const avgValue = count > 0 ? total / count : 0;
+  
+  return {
+    tokens: sorted,
+    metrics: {
+      total,
+      count,
+      avgValue,
+    },
+  };
+}, {
+  equalityFn: dequal,
+  debounce: 100,
+});
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Storage System" icon="hard-drive" href="/architecture/storage">
+    Learn about MMKV persistence
+  </Card>
+  <Card title="Navigation" icon="map" href="/architecture/navigation">
+    Understand the navigation architecture
+  </Card>
+</CardGroup>

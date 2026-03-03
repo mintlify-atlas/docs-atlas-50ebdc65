@@ -1,0 +1,120 @@
+---
+title: Design System Overview
+description: Introduction to Rainbow's design system components and architecture
+---
+
+Rainbow's design system provides a comprehensive set of React Native components built with TypeScript, offering a type-safe, performant foundation for building consistent user interfaces.
+
+## Philosophy
+
+The design system is built on several core principles:
+
+- **Type Safety**: All components are written in TypeScript with full type definitions
+- **Cross-Platform**: Components work seamlessly on iOS, Android, and Web
+- **Performance**: Optimized for React Native with careful attention to rendering performance
+- **Composability**: Components are designed to work together elegantly
+- **Design Tokens**: Consistent spacing, typography, and colors across the app
+
+## Architecture
+
+The design system is organized into several layers:
+
+### Layout Components
+
+Primitive layout components for building flexible UIs:
+
+- **Box** - The foundational layout primitive with flexbox properties
+- **Stack** - Vertical layouts with consistent spacing
+- **Inline** - Horizontal/wrapping layouts with consistent spacing
+- **Columns** - Equal-width column layouts
+- **Rows** - Equal-height row layouts
+- **Inset** - Container with padding
+- **Cover** - Absolutely positioned overlay
+
+### Typography
+
+Text rendering components with precise typography control:
+
+- **Text** - Primary text component with size and weight variants
+- **Heading** - Heading component (deprecated, use Text instead)
+- **MarkdownText** - Markdown rendering support
+
+### Design Tokens
+
+The design system uses a comprehensive token system:
+
+- **Space**: Consistent spacing values (2px, 4px, 8px, 12px, 16px, 20px, 24px, etc.)
+- **Typography**: SF Pro Rounded font family with multiple weights
+- **Colors**: Semantic color palettes with dark mode support
+- **Shadows**: Predefined shadow tokens for depth
+
+## Getting Started
+
+### Installation
+
+The design system is part of the Rainbow monorepo:
+
+```typescript
+import { Box, Stack, Text } from '@/design-system';
+```
+
+### Basic Example
+
+```typescript
+import { Box, Stack, Text } from '@/design-system';
+
+function MyComponent() {
+  return (
+    <Box background="surfacePrimary" padding="20px" borderRadius={16}>
+      <Stack space="12px">
+        <Text size="20pt" weight="bold" color="label">
+          Hello World
+        </Text>
+        <Text size="15pt" weight="regular" color="labelSecondary">
+          Welcome to Rainbow's design system
+        </Text>
+      </Stack>
+    </Box>
+  );
+}
+```
+
+## Development
+
+### Design System Playground
+
+Rainbow includes a design system playground for component development and testing:
+
+```bash
+# Run the design system docs locally
+yarn ds
+# Open http://localhost:3000
+```
+
+To enable the playground in the app:
+
+```javascript
+// src/config/debug.js
+export const designSystemPlaygroundEnabled = true;
+```
+
+### Adding New Components
+
+When adding a new component:
+
+1. Create the component in `src/design-system/components/`
+2. Add a corresponding `*.docs.tsx` file
+3. Import it in the main Playground component
+4. For new text sizes, validate spacing on both iOS and Android
+
+## Resources
+
+- **Live Documentation**: [https://rds-jxom.vercel.app](https://rds-jxom.vercel.app)
+- **Source Code**: `src/design-system/`
+- **Playground**: `src/design-system/playground/`
+
+## Next Steps
+
+- [Layout Components](/components/design-system/layout) - Learn about Box, Stack, and other layout primitives
+- [Typography](/components/design-system/typography) - Understand the typography system
+- [Styling Approach](/components/design-system/styling) - Learn about styled-thing

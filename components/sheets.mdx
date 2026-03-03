@@ -1,0 +1,523 @@
+---
+title: Sheet Components
+description: Bottom sheet and modal sheet implementations for overlays and dialogs
+---
+
+Rainbow provides a comprehensive sheet system for presenting modal content, bottom sheets, and overlays.
+
+## Portal Sheet System
+
+The Portal is Rainbow's core sheet system for presenting modal content.
+
+### Basic Usage
+
+```typescript
+import * as p from '@/screens/Portal';
+import { Box, Stack, Text } from '@/design-system';
+
+function MyComponent() {
+  const { open } = p.useOpen();
+
+  const handleOpenSheet = () => {
+    open(
+      () => (
+        <Box padding="20px">
+          <Stack space="12px">
+            <Text size="20pt" weight="bold" color="label">
+              Sheet Title
+            </Text>
+            <Text size="15pt" weight="regular" color="labelSecondary">
+              Sheet content goes here
+            </Text>
+          </Stack>
+        </Box>
+      ),
+      {
+        sheetHeight: 400,
+      }
+    );
+  };
+
+  return (
+    <ButtonPressAnimation onPress={handleOpenSheet}>
+      <Text size="17pt" weight="semibold" color="blue">
+        Open Sheet
+      </Text>
+    </ButtonPressAnimation>
+  );
+}
+```
+
+### Portal API
+
+#### useOpen Hook
+
+Use within React components:
+
+```typescript
+const { open } = p.useOpen();
+
+open(
+  () => <YourSheetContent />,
+  {
+    sheetHeight: 500,
+    // ... other options
+  }
+);
+```
+
+#### Imperative API
+
+Use outside React components:
+
+```typescript
+import * as p from '@/screens/Portal';
+
+// Open sheet
+p.open(
+  () => <YourSheetContent />,
+  { sheetHeight: 400 }
+);
+
+// Close sheet
+p.close();
+```
+
+### Portal Options
+
+<ParamField path="children" type="React.FC" required>
+  Component to render in the sheet
+</ParamField>
+
+<ParamField path="sheetHeight" type="number">
+  Height of the sheet in pixels
+</ParamField>
+
+### Example: Confirmation Sheet
+
+```typescript
+import * as p from '@/screens/Portal';
+import { Box, Stack, Text } from '@/design-system';
+import { SheetActionButtonRow } from '@/components/sheet/sheet-action-buttons/SheetActionButtonRow';
+import SheetActionButton from '@/components/sheet/sheet-action-buttons/SheetActionButton';
+
+function openConfirmationSheet(onConfirm: () => void) {
+  p.open(
+    () => (
+      <Box padding="20px">
+        <Stack space="20px">
+          <Stack space="8px">
+            <Text size="20pt" weight="bold" color="label" align="center">
+              Confirm Action
+            </Text>
+            <Text size="15pt" weight="regular" color="labelSecondary" align="center">
+              Are you sure you want to proceed?
+            </Text>
+          </Stack>
+          
+          <SheetActionButtonRow>
+            <SheetActionButton
+              label="Cancel"
+              onPress={p.close}
+              color="#8E8E93"
+            />
+            <SheetActionButton
+              label="Confirm"
+              onPress={() => {
+                onConfirm();
+                p.close();
+              }}
+              color="#007AFF"
+              size="big"
+            />
+          </SheetActionButtonRow>
+        </Stack>
+      </Box>
+    ),
+    {
+      sheetHeight: 280,
+    }
+  );
+}
+```
+
+## SlackSheet
+
+A customizable bottom sheet with drag-to-dismiss behavior.
+
+### Props
+
+<ParamField path="children" type="ReactNode" required>
+  Content to render in the sheet
+</ParamField>
+
+<ParamField path="backgroundColor" type="string">
+  Background color of the sheet
+</ParamField>
+
+<ParamField path="borderRadius" type="number" default="30">
+  Border radius of the sheet
+</ParamField>
+
+<ParamField path="height" type="number">
+  Fixed height of the sheet
+</ParamField>
+
+<ParamField path="scrollEnabled" type="boolean" default="true">
+  Whether the sheet content is scrollable
+</ParamField>
+
+<ParamField path="deferredHeight" type="boolean">
+  Defer height calculation
+</ParamField>
+
+<ParamField path="removeTopPadding" type="boolean">
+  Remove default top padding
+</ParamField>
+
+<ParamField path="contentHeight" type="number">
+  Content height for calculations
+</ParamField>
+
+### Usage
+
+```typescript
+import SlackSheet from '@/components/sheet/SlackSheet';
+import { Stack, Text } from '@/design-system';
+
+function MySheet() {
+  return (
+    <SlackSheet 
+      backgroundColor="#FFFFFF"
+      borderRadius={30}
+      height={500}
+    >
+      <Stack space="16px" paddingHorizontal="20px">
+        <Text size="26pt" weight="bold" color="label">
+          Sheet Title
+        </Text>
+        <Text size="15pt" weight="regular" color="labelSecondary">
+          Sheet content...
+        </Text>
+      </Stack>
+    </SlackSheet>
+  );
+}
+```
+
+## SimpleSheet
+
+A simplified sheet component for basic use cases.
+
+### Props
+
+<ParamField path="backgroundColor" type="string">
+  Background color
+</ParamField>
+
+<ParamField path="borderRadius" type="number">
+  Border radius
+</ParamField>
+
+<ParamField path="children" type="ReactNode" required>
+  Sheet content
+</ParamField>
+
+<ParamField path="deferredHeight" type="boolean">
+  Defer height calculation
+</ParamField>
+
+<ParamField path="dismissable" type="boolean" default="true">
+  Whether the sheet can be dismissed by dragging
+</ParamField>
+
+<ParamField path="removeTopPadding" type="boolean">
+  Remove top padding
+</ParamField>
+
+<ParamField path="yPosition" type="number">
+  Vertical position
+</ParamField>
+
+### Usage
+
+```typescript
+import { SimpleSheet } from '@/components/sheet/SimpleSheet';
+import { Box, Text } from '@/design-system';
+
+function BasicSheet() {
+  return (
+    <SimpleSheet
+      backgroundColor="#F5F5F5"
+      borderRadius={24}
+      dismissable
+    >
+      <Box padding="20px">
+        <Text size="17pt" weight="semibold" color="label">
+          Simple sheet content
+        </Text>
+      </Box>
+    </SimpleSheet>
+  );
+}
+```
+
+## Sheet Handle
+
+Visual handle indicator for draggable sheets.
+
+### SheetHandle
+
+```typescript
+import SheetHandle from '@/components/sheet/SheetHandle';
+
+function MySheet() {
+  return (
+    <>
+      <SheetHandle color="#CCCCCC" showBlur={false} />
+      <Box padding="20px">
+        {/* Sheet content */}
+      </Box>
+    </>
+  );
+}
+```
+
+### SheetHandleFixedToTop
+
+Handle that stays fixed to the top:
+
+```typescript
+import SheetHandleFixedToTop from '@/components/sheet/SheetHandleFixedToTop';
+
+function MySheet() {
+  return (
+    <>
+      <SheetHandleFixedToTop 
+        color="#CCCCCC" 
+        showBlur 
+        top={12}
+      />
+      <Box padding="20px">
+        {/* Sheet content */}
+      </Box>
+    </>
+  );
+}
+```
+
+## Sheet Utilities
+
+### SheetGestureBlocker
+
+Blocks gestures from propagating through the sheet:
+
+```typescript
+import { SheetGestureBlocker } from '@/components/sheet/SheetGestureBlocker';
+
+<SheetGestureBlocker>
+  <ScrollableContent />
+</SheetGestureBlocker>
+```
+
+### SheetSubtitleCycler
+
+Cycles through multiple subtitles:
+
+```typescript
+import { SheetSubtitleCycler } from '@/components/sheet/SheetSubtitleCycler';
+
+const items = [
+  { subtitle: 'Loading...' },
+  { subtitle: 'Almost there...' },
+  { subtitle: 'Done!' },
+];
+
+<SheetSubtitleCycler
+  items={items}
+  interval={2000}
+  sharedValue={animatedValue}
+/>
+```
+
+## Common Patterns
+
+### Full-Screen Sheet
+
+```typescript
+import * as p from '@/screens/Portal';
+import { Dimensions } from 'react-native';
+
+const { height } = Dimensions.get('window');
+
+p.open(
+  () => <YourFullScreenContent />,
+  {
+    sheetHeight: height - 50, // Account for status bar
+  }
+);
+```
+
+### Sheet with Header and Actions
+
+```typescript
+import * as p from '@/screens/Portal';
+import { Box, Stack, Text, Rows, Row } from '@/design-system';
+import { SheetActionButtonRow } from '@/components/sheet/sheet-action-buttons/SheetActionButtonRow';
+import SheetActionButton from '@/components/sheet/sheet-action-buttons/SheetActionButton';
+import SheetHandle from '@/components/sheet/SheetHandle';
+
+function openActionSheet() {
+  p.open(
+    () => (
+      <Rows space="20px">
+        <Row height="content">
+          <Stack space="12px">
+            <SheetHandle />
+            <Box paddingHorizontal="20px">
+              <Text size="26pt" weight="bold" color="label">
+                Select an Option
+              </Text>
+            </Box>
+          </Stack>
+        </Row>
+        
+        <Row>
+          <ScrollableContent />
+        </Row>
+        
+        <Row height="content">
+          <SheetActionButtonRow>
+            <SheetActionButton
+              label="Cancel"
+              onPress={p.close}
+              color="#8E8E93"
+            />
+            <SheetActionButton
+              label="Confirm"
+              onPress={() => {
+                handleConfirm();
+                p.close();
+              }}
+              color="#007AFF"
+              size="big"
+            />
+          </SheetActionButtonRow>
+        </Row>
+      </Rows>
+    ),
+    {
+      sheetHeight: 600,
+    }
+  );
+}
+```
+
+### Sheet with Loading State
+
+```typescript
+import * as p from '@/screens/Portal';
+import { useState } from 'react';
+import { Box, Stack, Text } from '@/design-system';
+import Spinner from '@/components/Spinner';
+
+function LoadingSheet() {
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    loadData().then(() => setIsLoading(false));
+  }, []);
+
+  if (isLoading) {
+    return (
+      <Box 
+        padding="40px" 
+        alignItems="center" 
+        justifyContent="center"
+      >
+        <Spinner size={32} />
+      </Box>
+    );
+  }
+
+  return (
+    <Box padding="20px">
+      <Text size="17pt" weight="semibold" color="label">
+        Content loaded!
+      </Text>
+    </Box>
+  );
+}
+
+p.open(
+  () => <LoadingSheet />,
+  { sheetHeight: 400 }
+);
+```
+
+## Best Practices
+
+### 1. Use Appropriate Sheet Heights
+
+Set sheet height based on content:
+
+```typescript
+// ✅ Good - height matches content
+p.open(
+  () => <CompactContent />,
+  { sheetHeight: 300 }
+);
+
+// ❌ Avoid - height too large for content
+p.open(
+  () => <CompactContent />,
+  { sheetHeight: 800 }
+);
+```
+
+### 2. Always Provide a Close Action
+
+Make it easy to dismiss sheets:
+
+```typescript
+<SheetActionButtonRow>
+  <SheetActionButton
+    label="Cancel"
+    onPress={p.close}
+  />
+  <SheetActionButton
+    label="Confirm"
+    onPress={handleConfirm}
+  />
+</SheetActionButtonRow>
+```
+
+### 3. Handle Safe Area Insets
+
+Account for device safe areas:
+
+```typescript
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+function MySheet() {
+  const insets = useSafeAreaInsets();
+  
+  return (
+    <Box paddingBottom={{ custom: insets.bottom + 20 }}>
+      {/* Content */}
+    </Box>
+  );
+}
+```
+
+### 4. Use Semantic Colors
+
+Use design system colors for consistency:
+
+```typescript
+// ✅ Good
+<SlackSheet backgroundColor="surfacePrimary">
+
+// ❌ Avoid
+<SlackSheet backgroundColor="#FFFFFF">
+```

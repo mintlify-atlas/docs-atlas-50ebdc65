@@ -1,0 +1,487 @@
+---
+title: Debugging
+description: Debug Rainbow Wallet and troubleshoot common issues
+---
+
+This guide covers debugging tools, techniques, and troubleshooting for Rainbow Wallet development.
+
+## Development Tools
+
+### React DevTools
+
+Inspect React component hierarchy, props, and state:
+
+```bash
+# Install globally
+npm install -g react-devtools
+
+# Run
+react-devtools
+```
+
+Then:
+1. Start your app (`yarn ios` or `yarn android`)
+2. React DevTools will connect automatically
+3. Inspect components, view props/state, profile performance
+
+### Flipper
+
+Flipper is Facebook's debugging platform for mobile apps:
+
+1. Download from [https://fbflipper.com/](https://fbflipper.com/)
+2. Install and launch Flipper
+3. Run your app (with Flipper support enabled - default)
+4. App appears in Flipper automatically
+
+**Flipper Features:**
+- **Network Inspector** - View all network requests/responses
+- **React DevTools** - Integrated React DevTools
+- **Logs** - View console logs and native logs
+- **Layout Inspector** - Inspect view hierarchy
+- **Redux Inspector** - Debug Redux state (if using Redux)
+- **Crash Reporter** - View crash logs
+
+<Info>
+  To build without Flipper (lighter builds): `yarn install-pods-no-flipper`
+</Info>
+
+### Metro Bundler Logs
+
+Metro shows bundling progress and JavaScript errors:
+
+```bash
+# Standard output
+yarn start
+
+# With client logs (shows console.log)
+yarn start:client-logs
+
+# Clean cache and restart
+yarn start:clean
+```
+
+### Native Logs
+
+#### iOS Logs
+
+View iOS logs:
+
+```bash
+# React Native CLI
+react-native log-ios
+
+# Or in Xcode
+# Open ios/Rainbow.xcworkspace
+# Run app, then view logs in Xcode console (Cmd+Shift+Y)
+```
+
+#### Android Logs
+
+View Android logs:
+
+```bash
+# React Native CLI
+react-native log-android
+
+# Or adb logcat
+adb logcat
+
+# Filter for React Native
+adb logcat *:S ReactNative:V ReactNativeJS:V
+
+# Or in Android Studio
+# Open android/ folder, run app, view Logcat tab
+```
+
+## Debugging Techniques
+
+### Console Logging
+
+Basic debugging with console.log:
+
+```typescript
+console.log('Debug value:', value);
+console.warn('Warning:', warning);
+console.error('Error:', error);
+```
+
+View logs:
+- **Metro**: `yarn start:client-logs`
+- **Flipper**: Logs plugin
+- **Chrome DevTools**: When remote debugging
+
+### Debugger Statement
+
+Use `debugger` to set breakpoints:
+
+```typescript
+function processData(data) {
+  debugger; // Execution pauses here when debugging
+  return data.map(item => item.value);
+}
+```
+
+### React DevTools Profiler
+
+Profile component render performance:
+
+1. Open React DevTools
+2. Go to **Profiler** tab
+3. Click **Record**
+4. Interact with app
+5. Click **Stop**
+6. Analyze component render times
+
+### Network Debugging
+
+#### Flipper Network Inspector
+
+View all network requests in Flipper's Network plugin.
+
+#### React Native Debugger
+
+Alternative to Chrome DevTools with Network tab:
+
+```bash
+# Install
+brew install --cask react-native-debugger
+
+# Run
+open "rndebugger://set-debugger-loc?host=localhost&port=8081"
+```
+
+### Redux DevTools
+
+For debugging Redux state (Rainbow uses Redux for some legacy features):
+
+1. Install [Redux DevTools Extension](https://github.com/reduxjs/redux-devtools)
+2. Use with React Native Debugger or Flipper Redux plugin
+
+## E2E Testing
+
+Rainbow uses **Maestro** for end-to-end testing.
+
+### Running E2E Tests
+
+<Steps>
+  <Step title="Enable testing mode">
+    Set in your `.env` file:
+    
+    ```bash
+    IS_TESTING=true
+    ```
+  </Step>
+  
+  <Step title="Build in release mode">
+    <Tabs>
+      <Tab title="iOS">
+        ```bash
+        yarn ios --mode Release
+        ```
+        
+        Or build from Xcode with Release configuration.
+      </Tab>
+      
+      <Tab title="Android">
+        ```bash
+        yarn android --mode Release
+        ```
+      </Tab>
+    </Tabs>
+    
+    <Note>
+      You can also run in development mode for easier debugging, but it may differ from CI.
+    </Note>
+  </Step>
+  
+  <Step title="Run tests">
+    <CodeGroup>
+    
+    ```bash All Tests
+    ./scripts/e2e-run.sh
+    ```
+    
+    ```bash Specific Test
+    ./scripts/e2e-run.sh --flow ./e2e/flows/auth/ImportWallet.yaml
+    ```
+    
+    </CodeGroup>
+  </Step>
+</Steps>
+
+### E2E Test Structure
+
+Tests are in `e2e/flows/` directory:
+
+```
+e2e/
+├── flows/
+│   ├── auth/
+│   │   ├── ImportWallet.yaml
+│   │   └── CreateWallet.yaml
+│   └── utils/
+│       └── ImportWalletWithKey.yaml
+└── README.md
+```
+
+### E2E Test Commands
+
+Maestro uses deep links to speed up test setup:
+
+```yaml
+# Deep link command
+- openLink: rainbow://e2e/<command>?param1=value1&param2=value2
+```
+
+Commands are implemented in `src/components/TestDeeplinkHandler.tsx`.
+
+### Debugging E2E Tests
+
+<AccordionGroup>
+  <Accordion title="Cannot find view with testID on iOS">
+    On iOS, `testID` uses `accessibilityIdentifier`. If a parent view has `accessible=true`, children's testIDs are hidden.
+    
+    **Solution**: Move `testID` to the accessible parent or set `accessible=false`.
+    
+    ```tsx
+    // ❌ Bad - won't work
+    <ButtonPressAnimation>
+      <View testID="test" />
+    </ButtonPressAnimation>
+    
+    // ✅ Good
+    <ButtonPressAnimation testID="test">
+      <View />
+    </ButtonPressAnimation>
+    ```
+  </Accordion>
+  
+  <Accordion title="Long wait time between actions">
+    Maestro waits for the app to "settle" (no animations). Looping animations prevent settling.
+    
+    **Solution**: Use `IS_TEST` from `@/env` to disable animations in tests:
+    
+    ```typescript
+    import { IS_TEST } from '@/env';
+    
+    const AnimatedComponent = () => {
+      if (IS_TEST) return <StaticComponent />;
+      return <AnimatedComponent />;
+    };
+    ```
+  </Accordion>
+  
+  <Accordion title="Flaky tests">
+    Use Maestro's retry mechanism:
+    
+    ```yaml
+    - retry:
+        maxRetries: 3
+        commands:
+          - tapOn: "Flaky Button"
+          - assertVisible: "Expected Result"
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### CI E2E Tests
+
+E2E tests run on CI for every PR. View logs in GitHub Actions artifacts:
+
+1. Go to Actions run: `https://github.com/rainbow-me/rainbow/actions/runs/<run_id>`
+2. Scroll to **Artifacts**
+3. Download test logs
+
+## Performance Debugging
+
+### React Native Performance Monitor
+
+1. Open developer menu (Cmd+D on iOS, Cmd+M on Android)
+2. Enable **Show Perf Monitor**
+3. View RAM, JavaScript FPS, UI FPS
+
+### Shopify Performance Monitoring
+
+Rainbow uses `@shopify/react-native-performance`:
+
+```typescript
+import { PerformanceProfiler } from '@shopify/react-native-performance';
+
+<PerformanceProfiler>
+  <App />
+</PerformanceProfiler>
+```
+
+Check `package.json` for related performance scripts.
+
+### Memory Leaks
+
+#### iOS Memory Profiling
+
+1. Open Xcode
+2. **Product → Profile** (Cmd+I)
+3. Select **Leaks** or **Allocations** instrument
+4. Run and interact with app
+5. Analyze memory usage
+
+#### Android Memory Profiling
+
+1. Open Android Studio
+2. Run app
+3. **View → Tool Windows → Profiler**
+4. Select app process
+5. Click **Memory** timeline
+6. Analyze memory allocations and GC events
+
+## Common Issues & Solutions
+
+<AccordionGroup>
+  <Accordion title="Metro bundler connection issues">
+    **Symptoms**: "Unable to connect to development server"
+    
+    **Solutions**:
+    ```bash
+    # Restart Metro with cache cleared
+    yarn clean:packager
+    yarn start --reset-cache
+    
+    # For Android, reverse ports
+    yarn android-reverse-ports
+    ```
+  </Accordion>
+  
+  <Accordion title="White screen on launch">
+    **Symptoms**: App shows white screen, no content
+    
+    **Solutions**:
+    1. Check Metro bundler is running
+    2. View logs for JavaScript errors
+    3. Try reloading: Cmd+R (iOS) or R+R (Android)
+    4. Check `.env` file is configured
+    5. Rebuild app: `yarn ios` or `yarn android`
+  </Accordion>
+  
+  <Accordion title="Native module errors">
+    **Symptoms**: "Native module X is not available"
+    
+    **Solutions**:
+    ```bash
+    # iOS: Reinstall pods
+    yarn clean:ios
+    yarn install-pods
+    
+    # Android: Clean and rebuild
+    yarn clean:android
+    cd android && ./gradlew assembleDebug && cd ..
+    
+    # Both: Full clean
+    ./scripts/nuke.sh
+    yarn install && yarn setup
+    ```
+  </Accordion>
+  
+  <Accordion title="Slow performance in debug mode">
+    **Symptoms**: App is very slow, animations lag
+    
+    **Cause**: Debug builds are much slower than release
+    
+    **Solutions**:
+    - Disable remote debugging (very slow)
+    - Use release mode for performance testing: `yarn ios --mode Release`
+    - Use Flipper or React DevTools instead of Chrome DevTools
+  </Accordion>
+  
+  <Accordion title="Build succeeds but app crashes on launch">
+    **Symptoms**: Build completes but app crashes immediately
+    
+    **Solutions**:
+    1. View native crash logs (Xcode console or Android logcat)
+    2. Check for missing environment variables in `.env`
+    3. Verify native modules are linked correctly
+    4. Check for conflicting dependencies
+    5. Try clean rebuild
+  </Accordion>
+  
+  <Accordion title="Hot reload not working">
+    **Symptoms**: Changes don't reflect in app
+    
+    **Solutions**:
+    1. Ensure Metro is running
+    2. Open developer menu, ensure **Fast Refresh** is enabled
+    3. Try manual reload: Cmd+R (iOS) or R+R (Android)
+    4. Restart Metro: `yarn start --reset-cache`
+    5. Some changes require full rebuild (native code, new dependencies)
+  </Accordion>
+</AccordionGroup>
+
+## Verification Commands
+
+Run these before committing code:
+
+```bash
+# Type check TypeScript
+yarn lint:ts
+
+# Type check JavaScript (against baseline)
+yarn lint:js-types
+
+# ESLint
+yarn lint:js
+
+# All linting (format + TS + JS)
+yarn lint
+
+# Run tests
+yarn test
+
+# Run specific test
+yarn jest path/to/test
+
+# Check for circular dependencies
+yarn check:cycles
+```
+
+## CI Linting
+
+CI runs additional checks:
+
+```bash
+yarn lint:ci
+```
+
+This runs:
+- `yarn format:check` - Prettier formatting
+- `yarn lint:ts` - TypeScript type checking
+- `yarn lint:js:ci` - ESLint (all files, not just changed)
+- `yarn lint:js-types` - JavaScript type checking against baseline
+
+## Debugging Best Practices
+
+1. **Use TypeScript** - Catch errors at compile time
+2. **Write tests** - Unit tests catch regressions early
+3. **Use ESLint** - Enforce code quality and catch common mistakes
+4. **Check types** - Run `yarn lint:ts` frequently
+5. **Profile performance** - Use React DevTools Profiler for slow components
+6. **Monitor bundle size** - Large bundles slow down app startup
+7. **Test on real devices** - Simulators/emulators don't represent real performance
+8. **Use release mode** - For accurate performance testing
+9. **Check circular deps** - Run `yarn check:cycles` to find circular dependencies
+10. **Read error messages** - React Native error screens often have helpful stack traces
+
+## Additional Resources
+
+- [React Native Debugging](https://reactnative.dev/docs/debugging)
+- [Flipper Documentation](https://fbflipper.com/docs/features/)
+- [Maestro Documentation](https://maestro.mobile.dev/)
+- [React DevTools](https://react-devtools-tutorial.vercel.app/)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Architecture" icon="sitemap" href="/features">
+    Understand Rainbow's architecture and state management
+  </Card>
+  <Card title="Running the App" icon="play" href="/development/running">
+    Build and run Rainbow in development mode
+  </Card>
+</CardGroup>

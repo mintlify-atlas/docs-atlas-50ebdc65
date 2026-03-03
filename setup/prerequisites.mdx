@@ -1,0 +1,260 @@
+---
+title: Prerequisites
+description: Install required tools and set up your development environment for Rainbow Wallet
+---
+
+Before you can build and run Rainbow, you need to install several prerequisites. This guide covers the required tools for both internal developers and external contributors.
+
+<Note>
+  **Internal developers** can use the automated setup script from [`rainbow-me/rainbow-setup`](https://github.com/rainbow-me/rainbow-setup) to install all dependencies and configure the project in one step.
+</Note>
+
+## Required Tools
+
+### 1. Node.js (Version 22+)
+
+Rainbow requires Node.js 22 or higher. We recommend using `nvm` (Node Version Manager) to manage Node.js versions.
+
+<Steps>
+  <Step title="Install nvm">
+    Install nvm from the official repository:
+    
+    ```bash
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+    ```
+    
+    Or visit [https://github.com/creationix/nvm](https://github.com/creationix/nvm) for installation instructions.
+  </Step>
+  
+  <Step title="Install Node.js">
+    Navigate to the Rainbow directory and install the required Node.js version:
+    
+    ```bash
+    nvm install
+    ```
+    
+    This reads the `.nvmrc` file which specifies `v22`.
+  </Step>
+  
+  <Step title="Use the correct version">
+    On future terminal sessions, activate the correct Node.js version:
+    
+    ```bash
+    nvm use
+    ```
+    
+    <Info>
+      Set up [automatic nvm switching](https://github.com/nvm-sh/nvm#deeper-shell-integration) in your shell to avoid running `nvm use` manually.
+    </Info>
+  </Step>
+</Steps>
+
+### 2. Ruby (Version 3.4.8)
+
+Rainbow uses Ruby for iOS tooling, specifically for CocoaPods and Fastlane.
+
+<Warning>
+  macOS system Ruby is too old and will not work. You must use a version manager like rbenv or rvm.
+</Warning>
+
+<Tabs>
+  <Tab title="rbenv (Recommended)">
+    Install rbenv and the required Ruby version:
+    
+    ```bash
+    # Install rbenv
+    brew install rbenv ruby-build
+    
+    # Initialize rbenv in your shell
+    echo 'eval "$(rbenv init - bash)"' >> ~/.bashrc  # or ~/.zshrc
+    
+    # Install Ruby 3.4.8
+    rbenv install 3.4.8
+    
+    # Set as global or local version
+    rbenv global 3.4.8
+    ```
+    
+    Learn more at [https://github.com/rbenv/rbenv](https://github.com/rbenv/rbenv)
+  </Tab>
+  
+  <Tab title="rvm">
+    Install rvm and the required Ruby version:
+    
+    ```bash
+    # Install rvm
+    \curl -sSL https://get.rvm.io | bash -s stable
+    
+    # Install Ruby 3.4.8
+    rvm install 3.4.8
+    
+    # Use Ruby 3.4.8
+    rvm use 3.4.8
+    ```
+    
+    Learn more at [https://rvm.io/](https://rvm.io/)
+  </Tab>
+</Tabs>
+
+### 3. Yarn (Version 4.2.2)
+
+Rainbow uses Yarn 4 with Corepack for package management.
+
+<Steps>
+  <Step title="Enable Corepack">
+    Corepack is included with Node.js 22. Enable it with:
+    
+    ```bash
+    corepack enable
+    ```
+  </Step>
+  
+  <Step title="Verify Yarn version">
+    The project's `package.json` specifies `"packageManager": "yarn@4.2.2"`, so Corepack will automatically use the correct version.
+    
+    ```bash
+    yarn --version
+    # Should output: 4.2.2
+    ```
+  </Step>
+</Steps>
+
+## API Keys and Configuration
+
+You'll need to set up API keys for various services. The process differs for internal developers and external contributors.
+
+### For Internal Developers
+
+<Warning>
+  Complete these steps **before** running `yarn install`, as the postinstall script reads `.env` and `rainbow-scripts` to generate build configs.
+</Warning>
+
+<Steps>
+  <Step title="Get .env file">
+    Copy `dotenv` from the private [`rainbow-me/rainbow-env`](https://github.com/rainbow-me/rainbow-env) repo to `.env` in the project root:
+    
+    ```bash
+    # Option 1: Manual copy from rainbow-env repo
+    cp path/to/rainbow-env/dotenv .env
+    
+    # Option 2: Use the update script (requires GITHUB_TOKEN)
+    yarn update-env
+    ```
+  </Step>
+  
+  <Step title="Get google-services.json">
+    Copy `android/app/google-services.json` from rainbow-env to `android/app/` in this project:
+    
+    ```bash
+    cp path/to/rainbow-env/google-services.json android/app/
+    ```
+  </Step>
+  
+  <Step title="Clone rainbow-scripts">
+    Clone the [`rainbow-me/rainbow-scripts`](https://github.com/rainbow-me/rainbow-scripts) repo into the project root:
+    
+    ```bash
+    git clone https://github.com/rainbow-me/rainbow-scripts.git
+    ```
+    
+    The postinstall prebuild hooks depend on this.
+  </Step>
+</Steps>
+
+### For External Contributors
+
+External contributors need to provide their own API keys.
+
+<Steps>
+  <Step title="Copy .env.example">
+    Create your own `.env` file from the example:
+    
+    ```bash
+    cp .env.example .env
+    ```
+  </Step>
+  
+  <Step title="Fill in API keys">
+    Edit `.env` and add your own API keys. You'll need:
+    
+    - **Etherscan**: [https://etherscan.io/apis](https://etherscan.io/apis)
+    - **Infura**: [https://infura.io/](https://infura.io/)
+    - **ETH Gas Station**: [https://docs.ethgasstation.info/](https://docs.ethgasstation.info/)
+    - **Imgix**: [https://www.imgix.com/](https://www.imgix.com/)
+    
+    <Note>
+      Some features are currently not accessible for external contributors. We are working with Data Providers to provide open source API keys.
+    </Note>
+  </Step>
+  
+  <Step title="Create Firebase project">
+    Create a personal Firebase project registered under the package name `me.rainbow`, then:
+    
+    1. Download `google-services.json` from Firebase Console
+    2. Place it in `android/app/google-services.json`
+    
+    <Info>
+      The iOS `GoogleService-Info.plist` is already in the repo. The postinstall script patches it with `GOOGLE_SERVICE_API_KEY` from your `.env`.
+    </Info>
+  </Step>
+</Steps>
+
+## Verify Prerequisites
+
+Before proceeding to installation, verify all prerequisites are correctly installed:
+
+```bash
+# Check Node.js version (should be 22+)
+node --version
+
+# Check Ruby version (should be 3.4.8)
+ruby --version
+
+# Check Yarn version (should be 4.2.2)
+yarn --version
+
+# Verify .env file exists
+ls -la .env
+
+# For external contributors, verify google-services.json
+ls -la android/app/google-services.json
+```
+
+## Next Steps
+
+With all prerequisites installed, you're ready to install Rainbow's dependencies:
+
+<Card title="Installation" icon="download" href="/setup/installation">
+  Install dependencies and run the setup script
+</Card>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="nvm command not found">
+    After installing nvm, you need to restart your terminal or source your shell profile:
+    
+    ```bash
+    source ~/.bashrc  # or ~/.zshrc
+    ```
+  </Accordion>
+  
+  <Accordion title="Wrong Ruby version">
+    Make sure you're not using system Ruby:
+    
+    ```bash
+    which ruby
+    # Should output something like /Users/you/.rbenv/shims/ruby
+    # NOT /usr/bin/ruby
+    ```
+  </Accordion>
+  
+  <Accordion title="Corepack not enabled">
+    If Yarn doesn't work, ensure Corepack is enabled:
+    
+    ```bash
+    corepack enable
+    yarn --version
+    ```
+  </Accordion>
+</AccordionGroup>

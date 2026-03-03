@@ -1,0 +1,616 @@
+---
+title: Database Migrations
+description: Guide to creating and managing data migrations in Rainbow Wallet
+---
+
+Rainbow uses a migration system to safely update user data across app versions. Migrations handle changes to stored data structures, deprecated features, and storage format updates.
+
+## Overview
+
+Migrations in Rainbow:
+- Run automatically on app startup
+- Execute once per user per migration
+- Support both immediate and deferred execution
+- Track completion in local storage
+- Handle errors gracefully
+
+## Migration System Architecture
+
+Migrations are defined in `src/migrations/` with the following structure:
+
+```
+src/migrations/
+  ├── index.ts                    # Migration runner
+  ├── types.ts                    # Migration types
+  └── migrations/
+      ├── migrateFavorites.ts
+      ├── fixHiddenUSDC.ts
+      └── ...
+```
+
+## Creating a Migration
+
+<Steps>
+  <Step title="Create migration file">
+    Create a new file in `src/migrations/migrations/` with a descriptive name.
+    
+    **Example:** `src/migrations/migrations/migrateTokenFormat.ts`
+  </Step>
+  
+  <Step title="Define the migration">
+    Implement the migration following the `Migration` type:
+    
+    ```typescript
+    import { type Migration, MigrationName } from '../types';
+    import { Storage } from '@/storage';
+    import { logger } from '@/logger';
+    
+    export function migrateTokenFormat(): Migration {
+      return {
+        name: MigrationName.migrateTokenFormat,
+        async migrate() {
+          // Your migration logic here
+          const storage = new Storage({ id: 'tokens' });
+          const oldTokens = storage.get(['tokens']);
+          
+          if (!oldTokens) return;
+          
+          // Transform data
+          const newTokens = oldTokens.map(token => ({
+            ...token,
+            uniqueId: `${token.address}_${token.chainId}`,
+          }));
+          
+          // Save transformed data
+          storage.set(['tokens'], newTokens);
+          
+          logger.info('Token format migration completed');
+        },
+      };
+    }
+    ```
+  </Step>
+  
+  <Step title="Add migration name to types">
+    Add your migration name to the `MigrationName` enum in `src/migrations/types.ts`:
+    
+    ```typescript
+    export enum MigrationName {
+      deleteImgixMMKVCache = 'deleteImgixMMKVCache',
+      migrateFavoritesV2 = 'migrateFavoritesV2',
+      // Add your migration
+      migrateTokenFormat = 'migrateTokenFormat',
+    }
+    ```
+  </Step>
+  
+  <Step title="Register the migration">
+    Add your migration to the array in `src/migrations/index.ts`:
+    
+    ```typescript
+    import { migrateTokenFormat } from './migrations/migrateTokenFormat';
+    
+    const migrations: Migration[] = [
+      deleteImgixMMKVCache(),
+      prepareDefaultNotificationGroupSettingsState(),
+      // ... other migrations
+      migrateTokenFormat(),  // Add at the end
+    ];
+    ```
+    
+    <Warning>
+      Order matters! Migrations run in the order they appear in this array.
+    </Warning>
+  </Step>
+</Steps>
+
+## Migration Types
+
+### Immediate Migration
+
+Runs synchronously during app startup, blocking other initialization:
+
+```typescript
+export function criticalMigration(): Migration {
+  return {
+    name: MigrationName.criticalMigration,
+    async migrate() {
+      // This runs immediately on startup
+      await updateCriticalData();
+    },
+  };
+}
+```
+
+### Deferred Migration
+
+Runs after interactions complete, doesn't block startup:
+
+```typescript
+export function nonCriticalMigration(): Migration {
+  return {
+    name: MigrationName.nonCriticalMigration,
+    defer: async () => {
+      // This runs after InteractionManager completes
+      await cleanupOldData();
+    },
+  };
+}
+```
+
+<Tip>
+  Use `defer` for non-critical migrations to improve app startup performance.
+</Tip>
+
+### Debug Migration
+
+Runs only in development, useful for testing:
+
+```typescript
+export function testMigration(): Migration {
+  return {
+    name: MigrationName.testMigration,
+    debug: true,  // Only runs in development
+    async migrate() {
+      await testDataTransformation();
+    },
+  };
+}
+```
+
+<Warning>
+  Debug migrations are automatically skipped in production. If a debug migration reaches production, it will log an error.
+</Warning>
+
+## Migration Examples
+
+### Simple Data Transformation
+
+Migrate data from one format to another:
+
+```typescript
+import { type Migration, MigrationName } from '../types';
+import { Storage } from '@/storage';
+
+export function migratePinnedTokens(): Migration {
+  return {
+    name: MigrationName.migratePinnedTokens,
+    async migrate() {
+      const storage = new Storage({ id: 'pinnedTokens' });
+      
+      // Get old format: array of addresses
+      const oldPinned = storage.get(['pinned']);
+      if (!oldPinned || !Array.isArray(oldPinned)) return;
+      
+      // Transform to new format: object with uniqueIds
+      const newPinned = oldPinned.reduce((acc, address) => {
+        acc[`${address}_1`] = true;  // Assume mainnet (chainId 1)
+        return acc;
+      }, {});
+      
+      // Save new format
+      storage.set(['pinned'], newPinned);
+    },
+  };
+}
+```
+
+### React Query Migration
+
+Migrate React Query persisted data:
+
+```typescript
+import { type Migration, MigrationName } from '../types';
+import { queryClient, persistOptions } from '@/react-query';
+import { 
+  persistQueryClientRestore, 
+  persistQueryClientSave 
+} from '@tanstack/react-query-persist-client';
+
+export function migrateFavoritesV2(): Migration {
+  return {
+    name: MigrationName.migrateFavoritesV2,
+    async migrate() {
+      // Restore persisted queries
+      await persistQueryClientRestore({
+        queryClient,
+        persister: persistOptions.persister,
+      });
+      
+      // Get old data
+      const oldData = queryClient.getQueryData(['favorites', 'v1']);
+      if (!oldData) return;
+      
+      // Transform data
+      const newData = transformFavorites(oldData);
+      
+      // Set new data
+      queryClient.setQueryData(['favorites', 'v2'], newData);
+      
+      // Persist updated queries
+      await persistQueryClientSave({
+        queryClient,
+        persister: persistOptions.persister,
+      });
+    },
+  };
+}
+```
+
+### Zustand Store Migration
+
+```typescript
+import { type Migration, MigrationName } from '../types';
+import { MMKV } from 'react-native-mmkv';
+
+export function migrateSettingsStore(): Migration {
+  return {
+    name: MigrationName.migrateSettingsStore,
+    async migrate() {
+      const mmkv = new MMKV({ id: 'settings' });
+      
+      // Get persisted state
+      const stateJson = mmkv.getString('state');
+      if (!stateJson) return;
+      
+      const state = JSON.parse(stateJson);
+      
+      // Add new fields with defaults
+      const migratedState = {
+        ...state,
+        newFeatureEnabled: false,
+        version: 2,
+      };
+      
+      // Save migrated state
+      mmkv.set('state', JSON.stringify(migratedState));
+    },
+  };
+}
+```
+
+### Cleanup Migration
+
+Remove deprecated data:
+
+```typescript
+import { type Migration, MigrationName } from '../types';
+import { MMKV } from 'react-native-mmkv';
+
+export function deleteOldCache(): Migration {
+  return {
+    name: MigrationName.deleteOldCache,
+    defer: async () => {
+      // Use defer for cleanup - not critical
+      const mmkv = new MMKV({ id: 'imageCache' });
+      
+      // Clear all keys
+      mmkv.clearAll();
+    },
+  };
+}
+```
+
+## Best Practices
+
+### Always Check for Data Existence
+
+```typescript
+// ✅ Good: Check before migrating
+export function safeMigration(): Migration {
+  return {
+    name: MigrationName.safeMigration,
+    async migrate() {
+      const storage = new Storage({ id: 'data' });
+      const data = storage.get(['key']);
+      
+      // Exit early if no data
+      if (!data) return;
+      
+      // Proceed with migration
+      const migrated = transform(data);
+      storage.set(['key'], migrated);
+    },
+  };
+}
+
+// ❌ Bad: Assuming data exists
+export function unsafeMigration(): Migration {
+  return {
+    name: MigrationName.unsafeMigration,
+    async migrate() {
+      const storage = new Storage({ id: 'data' });
+      const data = storage.get(['key']);
+      
+      // Will crash if data is undefined
+      const migrated = transform(data);
+      storage.set(['key'], migrated);
+    },
+  };
+}
+```
+
+### Handle Errors Gracefully
+
+The migration runner catches errors, but you should still handle them:
+
+```typescript
+export function robustMigration(): Migration {
+  return {
+    name: MigrationName.robustMigration,
+    async migrate() {
+      try {
+        const storage = new Storage({ id: 'data' });
+        const data = storage.get(['key']);
+        
+        if (!data) return;
+        
+        const migrated = transform(data);
+        storage.set(['key'], migrated);
+        
+        logger.info('Migration completed successfully');
+      } catch (error) {
+        logger.error('Migration failed', { error });
+        // Migration system will catch this and continue
+        throw error;
+      }
+    },
+  };
+}
+```
+
+### Use Descriptive Names
+
+```typescript
+// ✅ Good: Clear what the migration does
+MigrationName.migrateFavoritesV2 = 'migrateFavoritesV2'
+MigrationName.fixHiddenUSDC = 'fixHiddenUSDC'
+MigrationName.deleteImgixMMKVCache = 'deleteImgixMMKVCache'
+
+// ❌ Bad: Unclear purpose
+MigrationName.migration1 = 'migration1'
+MigrationName.fix = 'fix'
+MigrationName.update = 'update'
+```
+
+### Log Important Actions
+
+```typescript
+import { logger } from '@/logger';
+
+export function wellLoggedMigration(): Migration {
+  return {
+    name: MigrationName.wellLoggedMigration,
+    async migrate() {
+      logger.debug('Starting token migration');
+      
+      const storage = new Storage({ id: 'tokens' });
+      const tokens = storage.get(['tokens']);
+      
+      if (!tokens) {
+        logger.debug('No tokens to migrate');
+        return;
+      }
+      
+      logger.debug(`Migrating ${tokens.length} tokens`);
+      
+      const migrated = tokens.map(transform);
+      storage.set(['tokens'], migrated);
+      
+      logger.info('Token migration completed', {
+        count: migrated.length,
+      });
+    },
+  };
+}
+```
+
+### Version Your Migrations
+
+When updating the same data multiple times:
+
+```typescript
+// First version
+export function migrateFavoritesV2(): Migration { ... }
+
+// Second version
+export function migrateFavoritesV3(): Migration { ... }
+
+// Not: migrateFavorites() → migrateFavoritesAgain()
+```
+
+## Migration Execution
+
+### How Migrations Run
+
+Migrations run automatically on app startup via `src/migrations/index.ts`:
+
+```typescript
+export async function migrate(): Promise<void> {
+  if (isFullyMigrated()) return;
+  await runMigrations(migrations);
+}
+```
+
+For each migration:
+
+<Steps>
+  <Step title="Check if already run">
+    Check local storage to see if migration has already completed.
+  </Step>
+  
+  <Step title="Execute or defer">
+    - Immediate migrations: Run with `await`
+    - Deferred migrations: Schedule with `InteractionManager`
+  </Step>
+  
+  <Step title="Mark as complete">
+    Save completion timestamp to storage (unless `debug: true`).
+  </Step>
+  
+  <Step title="Log result">
+    Log success or failure.
+  </Step>
+</Steps>
+
+### Skip in Debug Mode
+
+Debug migrations are skipped in production:
+
+```typescript
+if (debug && env.IS_PROD) {
+  logger.error('[migrations]: is in debug mode', {
+    migration: name,
+  });
+  return;
+}
+```
+
+## Testing Migrations
+
+### Test Migration Logic
+
+```typescript
+import { migrateTokenFormat } from '../migrateTokenFormat';
+import { Storage } from '@/storage';
+
+jest.mock('@/storage');
+
+describe('migrateTokenFormat', () => {
+  it('transforms tokens to new format', async () => {
+    const mockStorage = {
+      get: jest.fn().mockReturnValue([
+        { address: '0xA', chainId: 1 },
+        { address: '0xB', chainId: 1 },
+      ]),
+      set: jest.fn(),
+    };
+    
+    (Storage as jest.Mock).mockImplementation(() => mockStorage);
+    
+    const migration = migrateTokenFormat();
+    await migration.migrate!();
+    
+    expect(mockStorage.set).toHaveBeenCalledWith(
+      ['tokens'],
+      expect.arrayContaining([
+        expect.objectContaining({
+          uniqueId: '0xA_1',
+        }),
+        expect.objectContaining({
+          uniqueId: '0xB_1',
+        }),
+      ])
+    );
+  });
+  
+  it('handles missing data gracefully', async () => {
+    const mockStorage = {
+      get: jest.fn().mockReturnValue(null),
+      set: jest.fn(),
+    };
+    
+    (Storage as jest.Mock).mockImplementation(() => mockStorage);
+    
+    const migration = migrateTokenFormat();
+    await migration.migrate!();
+    
+    expect(mockStorage.set).not.toHaveBeenCalled();
+  });
+});
+```
+
+### Test Migration Runner
+
+The migration runner itself has tests in `src/migrations/index.test.ts` (if it exists). Test that:
+- Migrations run in order
+- Completed migrations don't run again
+- Failed migrations are logged but don't crash the app
+- Debug migrations skip in production
+
+## Troubleshooting
+
+### Migration Not Running
+
+<Steps>
+  <Step title="Check migration is registered">
+    Ensure your migration is added to the `migrations` array in `src/migrations/index.ts`.
+  </Step>
+  
+  <Step title="Check migration name">
+    Ensure the name is added to the `MigrationName` enum in `src/migrations/types.ts`.
+  </Step>
+  
+  <Step title="Check completion status">
+    Migrations only run once. Clear app data to run again during testing.
+  </Step>
+  
+  <Step title="Check debug mode">
+    Debug migrations don't run in production.
+  </Step>
+</Steps>
+
+### Migration Fails Silently
+
+Check logs for errors:
+
+```typescript
+// Look for these log messages
+'[migrations]: Migrating'              // Migration started
+'[migrations]: Migrating complete'      // Migration succeeded
+'[migrations]: Migration failed'        // Migration failed
+'[migrations]: Already migrated'        // Migration skipped
+```
+
+### Data Not Migrating Correctly
+
+<Steps>
+  <Step title="Verify data exists">
+    Check that the data you're migrating actually exists in storage.
+  </Step>
+  
+  <Step title="Check storage key">
+    Ensure you're using the correct storage ID and key.
+  </Step>
+  
+  <Step title="Verify transformation">
+    Test your data transformation logic in isolation.
+  </Step>
+  
+  <Step title="Check save operation">
+    Ensure the migrated data is being saved correctly.
+  </Step>
+</Steps>
+
+## Migration Checklist
+
+Before deploying a migration:
+
+- [ ] Migration function is implemented
+- [ ] Migration name added to `MigrationName` enum
+- [ ] Migration registered in `migrations` array
+- [ ] Migration handles missing data gracefully
+- [ ] Migration includes error handling
+- [ ] Migration includes appropriate logging
+- [ ] Migration tested with real data
+- [ ] Migration tested with missing data
+- [ ] Migration uses `defer` if not critical
+- [ ] Migration order is correct
+- [ ] Debug flag removed (unless testing)
+
+## Additional Resources
+
+<CardGroup cols={2}>
+  <Card title="Code Conventions" icon="code" href="/contributing/code-conventions">
+    Learn about coding standards
+  </Card>
+  <Card title="Testing Guidelines" icon="vial" href="/contributing/testing">
+    Testing best practices
+  </Card>
+  <Card title="Pull Request Process" icon="code-pull-request" href="/contributing/pull-requests">
+    Submit your migration changes
+  </Card>
+  <Card title="Storage System" icon="database" href="/architecture/state-management">
+    Understanding Rainbow's storage
+  </Card>
+</CardGroup>

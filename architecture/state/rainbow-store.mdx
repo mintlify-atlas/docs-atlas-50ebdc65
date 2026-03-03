@@ -1,0 +1,542 @@
+---
+title: createRainbowStore
+description: General-purpose Zustand store with optional MMKV persistence
+---
+
+`createRainbowStore` is the foundational store creator for client-side state management in Rainbow. It provides a simple, type-safe way to create stores with optional persistence.
+
+## Overview
+
+`createRainbowStore` is built on Zustand with these enhancements:
+- **Optional MMKV persistence** - Automatically save and restore state
+- **Throttled persistence** - Debounced writes to avoid excessive I/O
+- **Selective persistence** - Choose which state to persist
+- **Type safety** - Full TypeScript support
+- **Equality checking** - Built-in `Object.is` for shallow equality
+
+## Basic Usage
+
+```typescript
+import { createRainbowStore } from '@/state/internal/createRainbowStore';
+
+const useCounterStore = createRainbowStore((set, get) => ({
+  count: 0,
+  increment: () => set((state) => ({ count: state.count + 1 })),
+  decrement: () => set((state) => ({ count: state.count - 1 })),
+  reset: () => set({ count: 0 }),
+}));
+```
+
+### In Components
+
+```typescript
+function Counter() {
+  const count = useCounterStore((state) => state.count);
+  const increment = useCounterStore((state) => state.increment);
+  
+  return (
+    <View>
+      <Text>{count}</Text>
+      <Button onPress={increment}>Increment</Button>
+    </View>
+  );
+}
+```
+
+### Outside Components
+
+```typescript
+// Get current state
+const { count } = useCounterStore.getState();
+
+// Update state
+useCounterStore.setState({ count: 10 });
+
+// Subscribe to changes
+const unsubscribe = useCounterStore.subscribe(
+  (state) => state.count,
+  (count, prevCount) => {
+    console.log('Count changed from', prevCount, 'to', count);
+  }
+);
+```
+
+## Type Signatures
+
+```typescript
+// Without persistence
+function createRainbowStore<S>(
+  createState: RainbowStateCreator<S>
+): RainbowStore<S>;
+
+// With persistence
+function createRainbowStore<S, PersistedState extends Partial<S>>(
+  createState: RainbowStateCreator<S>,
+  persistConfig: RainbowPersistConfig<S, PersistedState>
+): RainbowStore<S, PersistedState>;
+```
+
+### State Creator Function
+
+```typescript
+type RainbowStateCreator<S> = (
+  set: SetState<S>,
+  get: GetState<S>,
+  api: StoreApi<S>
+) => S;
+```
+
+The state creator receives:
+- `set` - Function to update state
+- `get` - Function to read current state
+- `api` - Store API (subscribe, setState, etc.)
+
+## Persistence
+
+Add persistence by providing a configuration object:
+
+```typescript
+const useSettingsStore = createRainbowStore(
+  (set) => ({
+    theme: 'light',
+    language: 'en',
+    notifications: true,
+    setTheme: (theme) => set({ theme }),
+    setLanguage: (lang) => set({ language: lang }),
+    toggleNotifications: () => set((s) => ({ notifications: !s.notifications })),
+  }),
+  {
+    storageKey: 'settings',
+    version: 1,
+  }
+);
+```
+
+### Persistence Configuration
+
+```typescript
+interface RainbowPersistConfig<S, PersistedState> {
+  // Required: unique key for storage
+  storageKey: string;
+  
+  // Optional: schema version for migrations
+  version?: number;
+  
+  // Optional: select which state to persist
+  partialize?: (state: S) => PersistedState;
+  
+  // Optional: custom serialization
+  serializer?: (state: PersistedState, version: number) => string;
+  deserializer?: (serialized: string) => { state: PersistedState; version: number };
+  
+  // Optional: throttle writes (default: 3s iOS, 5s Android)
+  persistThrottleMs?: number;
+  
+  // Optional: migration function
+  migrate?: (persistedState: unknown, version: number) => S | Promise<S>;
+  
+  // Optional: rehydration callback
+  onRehydrateStorage?: (state: S) => void;
+}
+```
+
+## Selective Persistence
+
+By default, all state except functions is persisted. Use `partialize` to customize:
+
+```typescript
+interface StoreState {
+  // Persist these
+  theme: string;
+  language: string;
+  
+  // Don't persist these
+  isLoading: boolean;
+  error: Error | null;
+  
+  // Methods (never persisted)
+  setTheme: (theme: string) => void;
+}
+
+const useStore = createRainbowStore<StoreState>(
+  (set) => ({ /* ... */ }),
+  {
+    storageKey: 'myStore',
+    partialize: (state) => ({
+      theme: state.theme,
+      language: state.language,
+      // isLoading and error are excluded
+    }),
+  }
+);
+```
+
+## Persistence Throttling
+
+Persistence is throttled to avoid excessive disk writes:
+
+```typescript src/state/internal/createRainbowStore.ts
+const DEFAULT_PERSIST_THROTTLE_MS = IS_TEST 
+  ? 0 
+  : IS_IOS 
+    ? time.seconds(3) 
+    : time.seconds(5);
+```
+
+Customize the throttle:
+
+```typescript
+const useStore = createRainbowStore(
+  (set) => ({ /* ... */ }),
+  {
+    storageKey: 'myStore',
+    persistThrottleMs: time.seconds(10), // Write max once per 10s
+  }
+);
+```
+
+## Migrations
+
+Handle schema changes with migrations:
+
+```typescript
+const useStore = createRainbowStore(
+  (set) => ({
+    // New schema
+    settings: {
+      theme: 'light',
+      language: 'en',
+    },
+  }),
+  {
+    storageKey: 'settings',
+    version: 2,
+    migrate: (persistedState, version) => {
+      if (version === 1) {
+        // Migrate from v1 to v2
+        return {
+          settings: {
+            theme: persistedState.theme,
+            language: persistedState.language,
+          },
+        };
+      }
+      return persistedState;
+    },
+  }
+);
+```
+
+## Custom Serialization
+
+By default, Rainbow stores handle `Map` and `Set` automatically. Provide custom serializers for complex types:
+
+```typescript
+const useStore = createRainbowStore(
+  (set) => ({
+    timestamps: new Map<string, Date>(),
+  }),
+  {
+    storageKey: 'timestamps',
+    serializer: (state, version) => {
+      return JSON.stringify({
+        state: {
+          timestamps: Array.from(state.timestamps.entries()).map(
+            ([k, v]) => [k, v.toISOString()]
+          ),
+        },
+        version,
+      });
+    },
+    deserializer: (serialized) => {
+      const { state, version } = JSON.parse(serialized);
+      return {
+        state: {
+          timestamps: new Map(
+            state.timestamps.map(([k, v]) => [k, new Date(v)])
+          ),
+        },
+        version,
+      };
+    },
+  }
+);
+```
+
+## Real-World Examples
+
+### Navigation Store
+
+```typescript src/state/navigation/navigationStore.ts
+import { makeMutable, type SharedValue } from 'react-native-reanimated';
+import { createRainbowStore } from '../internal/createRainbowStore';
+
+export type NavigationState = {
+  activeRoute: Route;
+  activeSwipeRoute: SwipeRoute;
+  animatedActiveRoute: SharedValue<Route>;
+  animatedActiveSwipeRoute: SharedValue<SwipeRoute>;
+  isWalletScreenMounted: boolean;
+  isRouteActive: (route: Route) => boolean;
+  setActiveRoute: (route: Route) => void;
+};
+
+export const useNavigationStore = createRainbowStore<NavigationState>((set, get) => ({
+  activeRoute: Routes.WALLET_SCREEN,
+  activeSwipeRoute: Routes.WALLET_SCREEN,
+  animatedActiveRoute: makeMutable<Route>(Routes.WALLET_SCREEN),
+  animatedActiveSwipeRoute: makeMutable<SwipeRoute>(Routes.WALLET_SCREEN),
+  isWalletScreenMounted: false,
+
+  isRouteActive: route => route === get().activeRoute,
+
+  setActiveRoute: route =>
+    set(state => {
+      const newActiveRoute = VIRTUAL_NAVIGATORS[route]?.getActiveRoute() ?? route;
+      if (newActiveRoute === state.activeRoute) return state;
+      
+      const onSwipeRoute = isSwipeRoute(newActiveRoute);
+      state.animatedActiveRoute.value = newActiveRoute;
+      if (onSwipeRoute) state.animatedActiveSwipeRoute.value = newActiveRoute;
+
+      return {
+        activeRoute: newActiveRoute,
+        activeSwipeRoute: onSwipeRoute ? newActiveRoute : state.activeSwipeRoute,
+      };
+    }),
+}));
+
+export const { isRouteActive, setActiveRoute } = useNavigationStore.getState();
+```
+
+### Browser Store with Persistence
+
+```typescript
+const useBrowserStore = createRainbowStore(
+  (set) => ({
+    currentUrl: '',
+    history: [],
+    favorites: [],
+    setUrl: (url: string) => set({ currentUrl: url }),
+    addToHistory: (url: string) => 
+      set((s) => ({ history: [...s.history, url] })),
+    toggleFavorite: (url: string) =>
+      set((s) => ({
+        favorites: s.favorites.includes(url)
+          ? s.favorites.filter(u => u !== url)
+          : [...s.favorites, url]
+      })),
+  }),
+  {
+    storageKey: 'browser',
+    version: 1,
+    partialize: (state) => ({
+      // Only persist favorites, not current URL or history
+      favorites: state.favorites,
+    }),
+  }
+);
+```
+
+## Advanced Patterns
+
+### Computed State
+
+```typescript
+const useCartStore = createRainbowStore((set, get) => ({
+  items: [],
+  addItem: (item) => set((s) => ({ items: [...s.items, item] })),
+  removeItem: (id) => set((s) => ({ 
+    items: s.items.filter(item => item.id !== id) 
+  })),
+  
+  // Computed values
+  get total() {
+    return get().items.reduce((sum, item) => sum + item.price, 0);
+  },
+  get itemCount() {
+    return get().items.length;
+  },
+}));
+```
+
+### Async Actions
+
+```typescript
+const useDataStore = createRainbowStore((set) => ({
+  data: null,
+  loading: false,
+  error: null,
+  
+  fetchData: async () => {
+    set({ loading: true, error: null });
+    try {
+      const data = await api.fetchData();
+      set({ data, loading: false });
+    } catch (error) {
+      set({ error, loading: false });
+    }
+  },
+}));
+```
+
+### Middleware Pattern
+
+```typescript
+const withLogging = (config) => (set, get, api) => {
+  const loggedSet = (...args) => {
+    console.log('State update:', args);
+    return set(...args);
+  };
+  return config(loggedSet, get, api);
+};
+
+const useStore = createRainbowStore(
+  withLogging((set) => ({
+    count: 0,
+    increment: () => set((s) => ({ count: s.count + 1 })),
+  }))
+);
+```
+
+## Storage Implementation
+
+Under the hood, `createRainbowStore` uses `rainbowStorage` (MMKV):
+
+```typescript src/state/internal/createRainbowStore.ts
+const persistStorage: PersistStorage<PersistedState> = {
+  getItem: (name: string) => {
+    const key = `${storageKey}:${name}`;
+    const serializedValue = rainbowStorage.getString(key);
+    if (!serializedValue) return null;
+    return deserializer(serializedValue);
+  },
+  setItem: (name, value) => {
+    lazyPersist({
+      partialize: config.partialize ?? omitStoreMethods<S, PersistedState>,
+      serializer,
+      storageKey,
+      name,
+      value,
+    });
+  },
+  removeItem: (name: string) => {
+    const key = `${storageKey}:${name}`;
+    rainbowStorage.remove(key);
+  },
+};
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use TypeScript interfaces">
+    Always define explicit types for your store state:
+    
+    ```typescript
+    interface MyStoreState {
+      data: string[];
+      loading: boolean;
+      addData: (item: string) => void;
+    }
+    
+    const useMyStore = createRainbowStore<MyStoreState>(/* ... */);
+    ```
+  </Accordion>
+  
+  <Accordion title="Keep state flat">
+    Avoid deeply nested state for better performance:
+    
+    ```typescript
+    // ✅ Good
+    {
+      userId: '123',
+      userName: 'John',
+      userEmail: 'john@example.com'
+    }
+    
+    // ❌ Bad
+    {
+      user: {
+        profile: {
+          personal: {
+            name: 'John'
+          }
+        }
+      }
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Use selectors wisely">
+    Select only what you need to avoid unnecessary re-renders:
+    
+    ```typescript
+    // ✅ Good - only re-renders when count changes
+    const count = useStore((s) => s.count);
+    
+    // ❌ Bad - re-renders on any state change
+    const state = useStore();
+    const count = state.count;
+    ```
+  </Accordion>
+  
+  <Accordion title="Export methods for external use">
+    Export commonly-used actions:
+    
+    ```typescript
+    export const useNavStore = createRainbowStore(/* ... */);
+    export const { setActiveRoute } = useNavStore.getState();
+    
+    // Use anywhere
+    setActiveRoute(Routes.WALLET_SCREEN);
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## API Reference
+
+### Store Methods
+
+```typescript
+interface RainbowStore<S> {
+  // React hook usage
+  (): S;
+  <T>(selector: (state: S) => T): T;
+  
+  // Store API
+  getState: () => S;
+  setState: (partial: Partial<S> | ((state: S) => Partial<S>)) => void;
+  subscribe: (
+    listener: (state: S, prevState: S) => void
+  ) => () => void;
+  destroy: () => void;
+}
+```
+
+### Persisted Store Methods
+
+```typescript
+interface PersistedRainbowStore<S, PersistedState> extends RainbowStore<S> {
+  persist: {
+    clearStorage: () => void;
+    getOptions: () => PersistOptions;
+    hasHydrated: () => boolean;
+    onFinishHydration: (fn: (state: S) => void) => () => void;
+    onHydrate: (fn: (state: S) => void) => () => void;
+    rehydrate: () => void;
+    setOptions: (options: Partial<PersistOptions>) => void;
+  };
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="createQueryStore" icon="cloud" href="/architecture/state/query-store">
+    Learn about data fetching stores
+  </Card>
+  <Card title="Storage System" icon="hard-drive" href="/architecture/storage">
+    Deep dive into MMKV storage
+  </Card>
+</CardGroup>

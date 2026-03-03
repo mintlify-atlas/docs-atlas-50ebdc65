@@ -1,0 +1,402 @@
+---
+title: 'WalletConnect Overview'
+description: 'Connect Rainbow Wallet to decentralized applications'
+---
+
+Rainbow Wallet supports WalletConnect v2, allowing you to securely connect and interact with thousands of decentralized applications (dApps) across the web3 ecosystem.
+
+## Features
+
+<CardGroup cols={2}>
+  <Card title="dApp Connections" icon="link" href="/features/walletconnect/dapp-connections">
+    Connect to dApps via QR codes, deep links, or browser extensions
+  </Card>
+  
+  <Card title="Transaction Signing" icon="pen-nib" href="/features/walletconnect/signing">
+    Review and sign messages, transactions, and typed data
+  </Card>
+  
+  <Card title="Session Management" icon="network-wired">
+    Manage active sessions and switch wallets per connection
+  </Card>
+  
+  <Card title="Multi-Chain Support" icon="globe">
+    Connect to dApps on any supported network
+  </Card>
+</CardGroup>
+
+## How WalletConnect Works
+
+WalletConnect establishes a secure, encrypted connection between your wallet and dApps:
+
+<Steps>
+  <Step title="Pairing">
+    Scan a QR code or use a deep link to initiate the connection.
+    
+    ```typescript src/walletConnect/index.tsx
+    export async function pair({ uri, connector }: {
+      uri: string;
+      connector?: string;
+    }) {
+      const { topic, ...rest } = parseUri(uri);
+      const client = await getWalletKitClient();
+      await client.pair({ uri });
+    }
+    ```
+  </Step>
+  
+  <Step title="Session Proposal">
+    The dApp requests permission to connect and lists required chains and methods.
+    
+    ```typescript src/walletConnect/index.tsx
+    export async function onSessionProposal(
+      proposal: WalletKitTypes.SessionProposal
+    ) {
+      const { proposer, requiredNamespaces, optionalNamespaces } =
+        proposal.params;
+      
+      const chains = uniq([
+        ...requiredNamespaces?.eip155?.chains || [],
+        ...optionalNamespaces?.eip155?.chains || [],
+      ]);
+    }
+    ```
+  </Step>
+  
+  <Step title="Approval">
+    You review the connection request and approve or reject it.
+  </Step>
+  
+  <Step title="Active Session">
+    Once approved, the dApp can send transaction and signing requests.
+  </Step>
+</Steps>
+
+## WalletConnect v2
+
+Rainbow uses WalletConnect v2 (WalletKit), which offers:
+
+- **Multi-chain sessions**: Single session across multiple networks
+- **Persistent connections**: Sessions survive app restarts
+- **Push notifications**: Get notified of pending requests
+- **Better performance**: Faster connection and request handling
+- **Authentication**: Sign-in with Ethereum (SIWE) support
+
+### Initialization
+
+```typescript src/walletConnect/index.tsx
+export const initializeWCv2 = async () => {
+  if (!walletConnectCore) {
+    walletConnectCore = new Core({ projectId: WC_PROJECT_ID });
+  }
+
+  if (!walletKitClient) {
+    walletKitClient = WalletKit.init({
+      core: walletConnectCore,
+      metadata: {
+        name: '🌈 Rainbow',
+        description: 'Rainbow makes exploring Ethereum fun and accessible 🌈',
+        url: 'https://rainbow.me',
+        icons: ['https://avatars2.githubusercontent.com/u/48327834?s=200&v=4'],
+        redirect: {
+          native: 'rainbow://wc',
+          universal: 'https://rnbwapp.com/wc',
+        },
+      },
+    });
+  }
+
+  return walletKitClient;
+};
+```
+
+## Supported Methods
+
+Rainbow supports standard Ethereum JSON-RPC methods:
+
+### Signing Methods
+
+```typescript src/walletConnect/index.tsx
+const SUPPORTED_SIGNING_METHODS = [
+  RPCMethod.Sign,                // eth_sign (disabled for security)
+  RPCMethod.PersonalSign,        // personal_sign
+  RPCMethod.SignTypedData,       // eth_signTypedData
+  RPCMethod.SignTypedDataV1,     // eth_signTypedData_v1
+  RPCMethod.SignTypedDataV3,     // eth_signTypedData_v3
+  RPCMethod.SignTypedDataV4,     // eth_signTypedData_v4
+];
+```
+
+### Transaction Methods
+
+```typescript src/walletConnect/index.tsx
+const SUPPORTED_TRANSACTION_METHODS = [
+  RPCMethod.SendTransaction,     // eth_sendTransaction
+];
+```
+
+### Session Events
+
+```typescript src/walletConnect/index.tsx
+const SUPPORTED_SESSION_EVENTS = [
+  'chainChanged',      // Network switch
+  'accountsChanged',   // Wallet switch
+];
+```
+
+<Warning>
+Rainbow does NOT support `eth_sign` (legacy signing) for security reasons. This method is dangerous and can be used to sign arbitrary data.
+</Warning>
+
+## Multi-Chain Support
+
+Connect to dApps on any supported network:
+
+```typescript src/walletConnect/index.tsx
+const chainIds = chains?.map(chain =>
+  parseInt(chain.split('eip155:')[1])
+);
+const supportedChainIds =
+  useBackendNetworksStore.getState().getSupportedChainIds();
+const chainIdsToUse = chainIds.filter(chainId =>
+  supportedChainIds.includes(chainId)
+);
+```
+
+Supported chains:
+- Ethereum Mainnet
+- Arbitrum
+- Optimism
+- Polygon
+- Base
+- And all other networks enabled in Rainbow
+
+## Push Notifications
+
+Receive notifications for pending WalletConnect requests:
+
+```typescript src/walletConnect/index.tsx
+export async function initWalletConnectPushNotifications() {
+  const token = await getFCMToken();
+  
+  if (token) {
+    const client = await getWalletKitClient();
+    const client_id = await client.core.crypto.getClientId();
+    
+    // Subscribe to echo server for push notifications
+    await subscribeToEchoServer({ token, client_id });
+    
+    // Update on token refresh
+    messaging().onTokenRefresh(async (token: string) => {
+      await subscribeToEchoServer({ token, client_id });
+    });
+  }
+}
+```
+
+Notifications alert you to:
+- New session proposals
+- Pending signature requests
+- Transaction approvals needed
+- Session disconnections
+
+<Info>
+Push notifications work even when Rainbow is closed, ensuring you never miss an important request.
+</Info>
+
+## Security Features
+
+### Dapp Verification
+
+Rainbow verifies dApp metadata and checks for scams:
+
+```typescript src/walletConnect/index.tsx
+const verifiedData = proposal.verifyContext.verified;
+const metadata = await fetchDappMetadata({ url: peerMeta.url, status: true });
+
+const isScam = metadata?.status === DAppStatus.Scam;
+```
+
+Verification includes:
+- Domain verification badges
+- Scam detection warnings
+- Metadata validation
+- Origin checking
+
+### Request Validation
+
+```typescript src/walletConnect/index.tsx
+export function parseRPCParams({ method, params }: RPCPayload): {
+  address?: string;
+  message?: string;
+} {
+  switch (method) {
+    case RPCMethod.PersonalSign: {
+      const [address, message] = params.sort(a => (isAddress(a) ? -1 : 1));
+      const isHex = isHexString(message);
+      
+      let decodedMessage = message;
+      try {
+        if (isHex) {
+          decodedMessage = toUtf8String(message);
+        }
+      } catch (err) {
+        // Handle decode error
+      }
+      
+      return {
+        address: getAddress(address),
+        message: decodedMessage,
+      };
+    }
+    // ... other methods
+  }
+}
+```
+
+### Read-Only Wallet Protection
+
+```typescript src/walletConnect/index.tsx
+const isReadOnly = selectedWallet?.type === WalletTypes.readOnly;
+if (!selectedWallet || isReadOnly) {
+  await client.respondSessionRequest({
+    topic,
+    response: formatJsonRpcError(id, `Wallet is read-only`),
+  });
+  
+  showErrorSheet({
+    title: 'Cannot Sign',
+    body: 'This wallet is read-only and cannot sign transactions.',
+    sheetHeight: 270,
+  });
+  return;
+}
+```
+
+## Session Persistence
+
+WalletConnect v2 sessions are persisted:
+
+- Survive app restarts
+- Stored in secure storage
+- Automatically restored on launch
+- Synchronized across the WalletConnect network
+
+```typescript src/walletConnect/index.tsx
+export async function getAllActiveSessions() {
+  const client = await getWalletKitClient();
+  return Object.values(client?.getActiveSessions() || {}) || [];
+}
+```
+
+## Deep Links
+
+Rainbow supports WalletConnect deep links:
+
+```
+rainbow://wc?uri=wc:...
+https://rnbwapp.com/wc?uri=wc:...
+```
+
+Deep link handling:
+
+```typescript src/walletConnect/index.tsx
+export function setHasPendingDeeplinkPendingRedirect(value: boolean) {
+  hasDeeplinkPendingRedirect = value;
+}
+
+export function maybeGoBackAndClearHasPendingRedirect({
+  delay = 0
+}: { delay?: number } = {}) {
+  if (hasDeeplinkPendingRedirect) {
+    InteractionManager.runAfterInteractions(() => {
+      setTimeout(() => {
+        setHasPendingDeeplinkPendingRedirect(false);
+        if (!IS_IOS) {
+          Minimizer.goBack();
+        }
+      }, delay);
+    });
+  }
+}
+```
+
+<Note>
+Deep links automatically redirect you back to the dApp after completing an action in Rainbow.
+</Note>
+
+## Error Handling
+
+Rainbow handles various WalletConnect errors gracefully:
+
+### Invalid Namespaces
+
+```typescript src/walletConnect/index.tsx
+if (namespaces.success) {
+  await client.approveSession({
+    id,
+    namespaces: namespaces.result,
+  });
+} else {
+  await rejectProposal({
+    proposal,
+    reason: 'INVALID_SESSION_SETTLE_REQUEST',
+  });
+  
+  showErrorSheet({
+    title: 'Connection Failed',
+    body: `Invalid namespaces: ${namespaces.error.message}`,
+    sheetHeight: 400,
+  });
+}
+```
+
+### Unsupported Methods
+
+```typescript src/walletConnect/index.tsx
+if (!isSupportedMethod(method)) {
+  await client.respondSessionRequest({
+    topic,
+    response: formatJsonRpcError(id, `Method ${method} not supported`),
+  });
+  
+  showErrorSheet({
+    title: 'Request Failed',
+    body: 'This request uses an unsupported method.',
+    sheetHeight: 250,
+  });
+}
+```
+
+### Transaction Failures
+
+Failed transactions are reported back to the dApp with error details.
+
+## Analytics
+
+WalletConnect events are tracked:
+
+```typescript src/walletConnect/index.tsx
+analytics.track(analytics.event.wcNewPairing, {
+  dappName: metadata.name,
+  dappUrl: metadata.url,
+  connector: lastConnector || 'unknown',
+});
+
+analytics.track(analytics.event.wcNewSessionApproved, {
+  dappName: proposer.metadata.name,
+  dappUrl: proposer.metadata.url,
+});
+
+analytics.track(analytics.event.wcShowingSigningRequest, {
+  dappName: request.dappName,
+  dappUrl: request.dappUrl,
+});
+```
+
+Tracked events:
+- New pairings
+- Session approvals/rejections
+- Signing requests shown
+- Request failures
+- Session deletions

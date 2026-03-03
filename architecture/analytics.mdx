@@ -1,0 +1,639 @@
+---
+title: Analytics Implementation
+description: Rudderstack-based event tracking and user identification
+---
+
+Rainbow uses [Rudderstack](https://www.rudderstack.com/) for privacy-focused analytics. The analytics system tracks user events, screens, and properties while respecting user privacy preferences.
+
+## Overview
+
+The analytics system provides:
+- **Event tracking** - Track user actions and conversions
+- **Screen tracking** - Automatic screen view events
+- **User identification** - Link events to users
+- **Privacy controls** - Respect Do Not Track preferences
+- **Offline queueing** - Events queued until ready
+- **Type safety** - Strongly typed events and properties
+
+## Analytics Class
+
+The core Analytics class manages all tracking:
+
+```typescript src/analytics/index.ts
+import rudderClient from '@rudderstack/rudder-sdk-react-native';
+import { device } from '@/storage';
+import { IS_TEST } from '@/env';
+
+export class Analytics {
+  client = rudderClient;
+  event = event;  // Event definitions
+
+  private disabled: boolean;
+  private ready = false;
+  private pending: (() => void)[] = [];
+  
+  private deviceId?: string;
+  private walletAddressHash?: string;
+  private walletType?: string;
+
+  constructor() {
+    this.disabled = IS_TEST || Boolean(device.get(['doNotTrack']));
+    
+    if (this.disabled) {
+      logger.debug('[Analytics] disabled');
+      return;
+    }
+  }
+
+  /**
+   * Initialize with device ID
+   */
+  init({ deviceId }: { deviceId: string }): void {
+    this.deviceId = deviceId;
+    if (this.disabled) return;
+    
+    logger.debug('[Analytics]: Initialized with deviceId');
+    this.ensureInit();
+  }
+
+  /**
+   * Identify user with traits
+   */
+  identify(userProperties?: UserProperties) {
+    if (this.disabled || !this.deviceId) return;
+    
+    const metadata = this.getDefaultMetadata();
+    this.enqueue(() => 
+      this.client.identify(this.deviceId!, { ...metadata, ...userProperties })
+    );
+  }
+
+  /**
+   * Track screen view
+   */
+  screen(
+    route: Route,
+    params?: Record<string, unknown>,
+    walletContext?: WalletContext
+  ): void {
+    if (this.disabled) return;
+    
+    const metadata = this.getDefaultMetadata();
+    this.enqueue(() => 
+      this.client.screen(route, { ...metadata, ...walletContext, ...params })
+    );
+  }
+
+  /**
+   * Track event
+   */
+  track<T extends keyof EventProperties>(
+    event: T,
+    params?: EventProperties[T],
+    walletContext?: WalletContext
+  ): void {
+    if (this.disabled) return;
+    
+    const metadata = this.getDefaultMetadata();
+    this.enqueue(() => 
+      this.client.track(event, { ...metadata, ...walletContext, ...params })
+    );
+  }
+
+  /**
+   * Set wallet context for events
+   */
+  setWalletContext(walletContext: WalletContext): void {
+    this.walletAddressHash = walletContext.walletAddressHash;
+    this.walletType = walletContext.walletType;
+  }
+
+  enable(): void {
+    if (!this.disabled) return;
+    this.disabled = false;
+    this.ensureInit();
+  }
+
+  disable(): void {
+    this.disabled = true;
+  }
+}
+
+export const analytics = new Analytics();
+```
+
+## Event Tracking
+
+### Define Events
+
+```typescript src/analytics/event.ts
+export const event = {
+  // Wallet events
+  walletCreated: 'Wallet Created',
+  walletImported: 'Wallet Imported',
+  walletConnected: 'Wallet Connected',
+  
+  // Transaction events
+  transactionSent: 'Transaction Sent',
+  transactionReceived: 'Transaction Received',
+  swapExecuted: 'Swap Executed',
+  
+  // Feature usage
+  nftViewed: 'NFT Viewed',
+  tokenSearched: 'Token Searched',
+  settingsChanged: 'Settings Changed',
+} as const;
+
+export type EventProperties = {
+  'Wallet Created': {
+    walletType: 'new' | 'imported';
+    method?: string;
+  };
+  'Transaction Sent': {
+    asset: string;
+    amount: number;
+    network: string;
+  };
+  'Swap Executed': {
+    fromAsset: string;
+    toAsset: string;
+    fromAmount: number;
+    toAmount: number;
+  };
+  'NFT Viewed': {
+    collection: string;
+    tokenId: string;
+  };
+  // ... more events
+};
+```
+
+### Track Events
+
+```typescript
+import { analytics } from '@/analytics';
+import { event } from '@/analytics/event';
+
+function handleSwap(from: Token, to: Token, fromAmount: number, toAmount: number) {
+  // Execute swap
+  await executeSwap(from, to, fromAmount);
+  
+  // Track event
+  analytics.track(event.swapExecuted, {
+    fromAsset: from.symbol,
+    toAsset: to.symbol,
+    fromAmount,
+    toAmount,
+  });
+}
+```
+
+## Screen Tracking
+
+### Automatic Screen Tracking
+
+Screen views are tracked automatically via navigation:
+
+```typescript
+import { analytics } from '@/analytics';
+import { getWalletContext } from '@/analytics/getWalletContext';
+import Routes from '@/navigation/routesNames';
+
+// In navigation listener
+const onNavigationStateChange = (state) => {
+  const route = getActiveRoute(state);
+  const walletContext = getWalletContext();
+  
+  analytics.screen(route.name, route.params, walletContext);
+};
+```
+
+### Manual Screen Tracking
+
+```typescript
+import { analytics } from '@/analytics';
+import Routes from '@/navigation/routesNames';
+
+function MyScreen() {
+  useEffect(() => {
+    analytics.screen(Routes.MY_SCREEN, { source: 'deeplink' });
+  }, []);
+}
+```
+
+## User Identification
+
+### Identify on App Start
+
+```typescript
+import { analytics } from '@/analytics';
+import { getOrCreateDeviceId } from '@/utils/deviceId';
+
+async function initializeApp() {
+  const deviceId = await getOrCreateDeviceId();
+  
+  // Initialize analytics
+  analytics.init({ deviceId });
+  
+  // Identify user
+  analytics.identify({
+    platform: Platform.OS,
+    version: DeviceInfo.getVersion(),
+    buildNumber: DeviceInfo.getBuildNumber(),
+  });
+}
+```
+
+### Set Wallet Context
+
+```typescript
+import { analytics } from '@/analytics';
+import { getWalletContext } from '@/analytics/getWalletContext';
+
+function onWalletSelected(wallet: Wallet) {
+  const context = getWalletContext(wallet);
+  
+  analytics.setWalletContext(context);
+  
+  // Re-identify with wallet context
+  analytics.identify();
+}
+```
+
+### Wallet Context
+
+```typescript src/analytics/getWalletContext.ts
+import { hashString } from '@/utils/crypto';
+
+export type WalletContext = {
+  walletAddressHash?: string;
+  walletType?: 'hot' | 'cold' | 'watch';
+};
+
+export function getWalletContext(wallet?: Wallet): WalletContext {
+  if (!wallet) return {};
+  
+  return {
+    walletAddressHash: hashString(wallet.address),
+    walletType: wallet.type,
+  };
+}
+```
+
+## User Properties
+
+```typescript src/analytics/userProperties.ts
+export type UserProperties = {
+  // Platform
+  platform?: 'ios' | 'android';
+  version?: string;
+  buildNumber?: string;
+  
+  // Device
+  device_model?: string;
+  device_brand?: string;
+  device_manufacturer?: string;
+  
+  // User preferences
+  theme?: 'light' | 'dark';
+  language?: string;
+  currency?: string;
+  
+  // Wallet
+  walletCount?: number;
+  hasBackup?: boolean;
+  
+  // Features
+  hasEnabledNotifications?: boolean;
+  hasEnabledBiometrics?: boolean;
+};
+```
+
+### Update User Properties
+
+```typescript
+import { analytics } from '@/analytics';
+
+function onThemeChanged(theme: 'light' | 'dark') {
+  analytics.identify({ theme });
+}
+
+function onLanguageChanged(language: string) {
+  analytics.identify({ language });
+}
+```
+
+## Privacy Controls
+
+### Do Not Track
+
+```typescript
+import { analytics } from '@/analytics';
+import { device } from '@/storage';
+
+function setTrackingEnabled(enabled: boolean) {
+  device.set(['doNotTrack'], !enabled);
+  
+  if (enabled) {
+    analytics.enable();
+  } else {
+    analytics.disable();
+  }
+}
+
+function isTrackingEnabled(): boolean {
+  return !device.get(['doNotTrack']);
+}
+```
+
+### User Consent
+
+```typescript
+import { analytics } from '@/analytics';
+
+function handleConsentGiven() {
+  device.set(['doNotTrack'], false);
+  analytics.enable();
+  
+  // Identify user now that we have consent
+  analytics.identify({
+    consentGiven: true,
+    consentDate: new Date().toISOString(),
+  });
+}
+```
+
+## Event Queue
+
+Events are queued until Rudderstack initializes:
+
+```typescript
+private enqueue(fn: () => void): void {
+  if (this.disabled) return;
+
+  if (this.ready) {
+    fn();
+  } else {
+    this.pending.push(fn);
+    this.ensureInit();
+  }
+}
+
+private flushQueueAndSetReady(): void {
+  while (this.pending.length) {
+    const queued = this.pending;
+    this.pending = [];
+    for (const fn of queued) fn();
+  }
+  this.ready = true;
+}
+```
+
+## Metadata
+
+Default metadata attached to all events:
+
+```typescript
+type DefaultMetadata = {
+  walletAddressHash?: string;
+  walletType?: 'hot' | 'cold' | 'watch';
+  device_brand?: string;      // Android only
+  device_manufacturer?: string; // Android only
+  device_model?: string;      // Android only
+};
+
+private getDefaultMetadata(): DefaultMetadata {
+  const metadata: DefaultMetadata = {
+    walletAddressHash: this.walletAddressHash,
+    walletType: this.walletType,
+  };
+
+  if (IS_ANDROID) {
+    metadata.device_brand = this.deviceBrand;
+    metadata.device_manufacturer = this.deviceManufacturer;
+    metadata.device_model = this.deviceModel;
+  }
+
+  return metadata;
+}
+```
+
+## Real-World Examples
+
+### Transaction Tracking
+
+```typescript
+import { analytics } from '@/analytics';
+import { event } from '@/analytics/event';
+import { getWalletContext } from '@/analytics/getWalletContext';
+
+async function sendTransaction(tx: Transaction) {
+  try {
+    const result = await executeTransaction(tx);
+    
+    analytics.track(
+      event.transactionSent,
+      {
+        asset: tx.asset.symbol,
+        amount: tx.amount,
+        network: tx.network,
+        gasUsed: result.gasUsed,
+      },
+      getWalletContext()
+    );
+  } catch (error) {
+    analytics.track(
+      event.transactionFailed,
+      {
+        asset: tx.asset.symbol,
+        error: error.message,
+      },
+      getWalletContext()
+    );
+  }
+}
+```
+
+### Feature Usage
+
+```typescript
+import { analytics } from '@/analytics';
+
+function NFTDetailsScreen({ nft }: Props) {
+  useEffect(() => {
+    analytics.track(event.nftViewed, {
+      collection: nft.collection,
+      tokenId: nft.tokenId,
+      floorPrice: nft.floorPrice,
+    });
+  }, [nft]);
+}
+```
+
+### Settings Changes
+
+```typescript
+import { analytics } from '@/analytics';
+
+function SettingsScreen() {
+  const handleThemeChange = (theme: 'light' | 'dark') => {
+    setTheme(theme);
+    
+    analytics.track(event.settingsChanged, {
+      setting: 'theme',
+      value: theme,
+    });
+    
+    analytics.identify({ theme });
+  };
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Type all events">
+    Define events in `event.ts` with typed properties:
+    
+    ```typescript
+    export type EventProperties = {
+      'My Event': {
+        requiredProp: string;
+        optionalProp?: number;
+      };
+    };
+    ```
+  </Accordion>
+  
+  <Accordion title="Hash sensitive data">
+    Never send PII - hash wallet addresses and emails:
+    
+    ```typescript
+    analytics.track(event, {
+      walletAddressHash: hashString(address),
+    });
+    ```
+  </Accordion>
+  
+  <Accordion title="Include wallet context">
+    Pass wallet context to track events:
+    
+    ```typescript
+    analytics.track(event, params, getWalletContext());
+    ```
+  </Accordion>
+  
+  <Accordion title="Respect privacy settings">
+    Check Do Not Track before tracking:
+    
+    ```typescript
+    if (device.get(['doNotTrack'])) return;
+    analytics.track(event, params);
+    ```
+  </Accordion>
+  
+  <Accordion title="Use meaningful event names">
+    Use descriptive, consistent event names:
+    
+    ```typescript
+    // ✅ Good
+    'Transaction Sent'
+    'Swap Executed'
+    'NFT Viewed'
+    
+    // ❌ Bad
+    'tx_sent'
+    'swap'
+    'view'
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Testing
+
+### Mock Analytics
+
+```typescript src/analytics/__mocks__/index.ts
+export const analytics = {
+  init: jest.fn(),
+  identify: jest.fn(),
+  screen: jest.fn(),
+  track: jest.fn(),
+  setWalletContext: jest.fn(),
+  enable: jest.fn(),
+  disable: jest.fn(),
+};
+```
+
+### Test Event Tracking
+
+```typescript
+import { analytics } from '@/analytics';
+import { event } from '@/analytics/event';
+
+jest.mock('@/analytics');
+
+describe('Transaction', () => {
+  it('tracks successful transaction', async () => {
+    await sendTransaction(mockTx);
+    
+    expect(analytics.track).toHaveBeenCalledWith(
+      event.transactionSent,
+      expect.objectContaining({
+        asset: 'ETH',
+        amount: 1.0,
+      }),
+      expect.any(Object)
+    );
+  });
+});
+```
+
+## Debugging
+
+### Development Mode
+
+```typescript
+if (__DEV__) {
+  // Log events to console
+  const originalTrack = analytics.track.bind(analytics);
+  analytics.track = (event, params, context) => {
+    console.log('[Analytics]', event, params, context);
+    return originalTrack(event, params, context);
+  };
+}
+```
+
+### Verify Events
+
+Use Rudderstack's debugger to verify events in development.
+
+## Configuration
+
+```typescript
+import rudderClient from '@rudderstack/rudder-sdk-react-native';
+
+this.client
+  .setup(REACT_NATIVE_RUDDERSTACK_WRITE_KEY, {
+    dataPlaneUrl: RUDDERSTACK_DATA_PLANE_URL,
+    trackAppLifecycleEvents: !IS_TEST,
+  })
+  .then(() => {
+    this.flushQueueAndSetReady();
+  })
+  .catch(error => {
+    logger.error(new RainbowError('[Analytics] Init failed'), { error });
+    this.disable();
+  });
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Logging System" icon="file-text" href="/architecture/logging">
+    Learn about Rainbow's logging
+  </Card>
+  <Card title="Storage" icon="hard-drive" href="/architecture/storage">
+    Back to storage system
+  </Card>
+</CardGroup>

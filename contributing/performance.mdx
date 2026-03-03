@@ -1,0 +1,667 @@
+---
+title: Performance Optimization
+description: Performance best practices and optimization guidelines for Rainbow Wallet
+---
+
+Performance is critical for a smooth user experience in Rainbow Wallet. This guide covers performance best practices and common optimization techniques.
+
+## Performance Principles
+
+<CardGroup cols={2}>
+  <Card title="Measure First" icon="chart-line">
+    Always measure before optimizing. Use profiling tools to identify bottlenecks.
+  </Card>
+  <Card title="Optimize Critical Paths" icon="route">
+    Focus on user-facing features and startup performance.
+  </Card>
+  <Card title="Lazy Load" icon="hourglass">
+    Load heavy dependencies and features only when needed.
+  </Card>
+  <Card title="Minimize Re-renders" icon="rotate">
+    Reduce unnecessary React re-renders with proper memoization.
+  </Card>
+</CardGroup>
+
+## Import Optimization
+
+### Avoid Barrel Exports
+
+Barrel files (index.ts) hurt performance by:
+- Defeating tree-shaking
+- Triggering cascading module loads
+- Increasing bundle size
+
+**Bad:**
+```typescript
+// ❌ Importing from barrel file loads entire module
+import { Button } from '@/components';
+```
+
+**Good:**
+```typescript
+// ✅ Direct imports enable tree-shaking
+import { Button } from '@/components/Button';
+```
+
+<Warning>
+  Barrel files are strictly forbidden in Rainbow. ESLint will catch them.
+</Warning>
+
+### Lazy Load Heavy Dependencies
+
+Load expensive libraries only when needed:
+
+```typescript
+// ❌ Bad: Import heavy library at module level
+import ImageManipulator from 'expo-image-manipulator';
+
+export async function processImage(uri: string) {
+  return ImageManipulator.manipulateAsync(uri, [...]);
+}
+
+// ✅ Good: Lazy load when needed
+export async function processImage(uri: string) {
+  const ImageManipulator = await import('expo-image-manipulator');
+  return ImageManipulator.manipulateAsync(uri, [...]);
+}
+```
+
+### Use Type-Only Imports
+
+Help bundlers optimize by marking type imports:
+
+```typescript
+// ✅ Type-only imports are stripped at build time
+import { type UserData } from '@/types/user';
+import { type ComponentProps } from 'react';
+
+// ❌ Regular imports may include runtime code
+import { UserData } from '@/types/user';
+```
+
+## React Performance
+
+### Memoization
+
+Use memoization to prevent unnecessary re-renders and recalculations:
+
+#### React.memo for Components
+
+```typescript
+import { memo } from 'react';
+
+// Without memo: re-renders on every parent render
+export function TokenRow({ token }: { token: Token }) {
+  return <View>{token.symbol}</View>;
+}
+
+// With memo: only re-renders when token changes
+export const TokenRow = memo(function TokenRow({ 
+  token 
+}: { 
+  token: Token 
+}) {
+  return <View>{token.symbol}</View>;
+});
+```
+
+#### useMemo for Expensive Computations
+
+```typescript
+import { useMemo } from 'react';
+
+function TokenList({ tokens }: { tokens: Token[] }) {
+  // ❌ Bad: Sorts on every render
+  const sortedTokens = tokens.sort((a, b) => b.balance - a.balance);
+  
+  // ✅ Good: Only sorts when tokens change
+  const sortedTokens = useMemo(
+    () => tokens.sort((a, b) => b.balance - a.balance),
+    [tokens]
+  );
+  
+  return <List data={sortedTokens} />;
+}
+```
+
+#### useCallback for Functions
+
+```typescript
+import { useCallback } from 'react';
+
+function TokenList({ tokens, onSelect }: Props) {
+  // ❌ Bad: Creates new function on every render
+  const handlePress = (token: Token) => {
+    onSelect(token);
+    analytics.track('token_selected');
+  };
+  
+  // ✅ Good: Stable function reference
+  const handlePress = useCallback((token: Token) => {
+    onSelect(token);
+    analytics.track('token_selected');
+  }, [onSelect]);
+  
+  return <List data={tokens} onItemPress={handlePress} />;
+}
+```
+
+#### use-memo-one
+
+For shallow comparisons, use `use-memo-one`:
+
+```typescript
+import { useMemo } from 'use-memo-one';
+
+// More efficient than React.useMemo for simple deps
+const value = useMemo(
+  () => computeValue(a, b),
+  [a, b]
+);
+```
+
+### List Rendering
+
+Optimize large lists with proper virtualization:
+
+#### Use FlashList
+
+Rainbow uses `@shopify/flash-list` for performant lists:
+
+```typescript
+import { FlashList } from '@shopify/flash-list';
+
+function TokenList({ tokens }: { tokens: Token[] }) {
+  return (
+    <FlashList
+      data={tokens}
+      renderItem={({ item }) => <TokenRow token={item} />}
+      estimatedItemSize={60}
+      // Optimize with getItemType for heterogeneous lists
+      getItemType={(item) => item.type}
+    />
+  );
+}
+```
+
+#### Optimize Item Components
+
+```typescript
+import { memo } from 'react';
+
+// ✅ Memoize list items
+export const TokenRow = memo(function TokenRow({ 
+  token 
+}: { 
+  token: Token 
+}) {
+  return (
+    <View>
+      <Text>{token.symbol}</Text>
+      <Text>{token.balance}</Text>
+    </View>
+  );
+});
+
+// ✅ Use stable keys
+function TokenList({ tokens }: { tokens: Token[] }) {
+  return (
+    <FlashList
+      data={tokens}
+      renderItem={({ item }) => <TokenRow token={item} />}
+      // Use stable unique ID, not array index
+      keyExtractor={(item) => item.uniqueId}
+    />
+  );
+}
+```
+
+### Avoid Inline Objects and Functions
+
+```typescript
+function Component() {
+  // ❌ Bad: Creates new object/function on every render
+  return (
+    <View style={{ flex: 1, padding: 16 }}>
+      <Button onPress={() => console.log('pressed')} />
+    </View>
+  );
+}
+
+// ✅ Good: Stable references
+const styles = { flex: 1, padding: 16 };
+
+function Component() {
+  const handlePress = useCallback(() => {
+    console.log('pressed');
+  }, []);
+  
+  return (
+    <View style={styles}>
+      <Button onPress={handlePress} />
+    </View>
+  );
+}
+```
+
+## State Management Performance
+
+### Use Selective Subscriptions
+
+Subscribe to only the state you need:
+
+```typescript
+import { useWalletStore } from '@/state/wallet';
+
+// ❌ Bad: Re-renders on any wallet state change
+function Component() {
+  const wallet = useWalletStore();
+  return <Text>{wallet.address}</Text>;
+}
+
+// ✅ Good: Only re-renders when address changes
+function Component() {
+  const address = useWalletStore(state => state.address);
+  return <Text>{address}</Text>;
+}
+```
+
+### Use createDerivedStore
+
+For computed state, use `createDerivedStore` instead of selectors:
+
+```typescript
+import { createDerivedStore } from '@/state/internal/createDerivedStore';
+import { useWalletStore } from '@/state/wallet';
+import { usePricesStore } from '@/state/prices';
+
+// ✅ Efficient: Computed once and cached
+export const useTotalBalance = createDerivedStore(
+  [useWalletStore, usePricesStore],
+  (wallet, prices) => {
+    return wallet.tokens.reduce(
+      (sum, token) => sum + (prices[token.address] || 0) * token.balance,
+      0
+    );
+  }
+);
+```
+
+### Use createQueryStore for Async Data
+
+Replace React Query + Zustand with `createQueryStore`:
+
+```typescript
+import { createQueryStore } from '@/state/internal/createQueryStore';
+
+// ✅ Efficient: Combines fetching + state
+export const useTokenPrice = createQueryStore({
+  queryKey: ({ address }) => ['tokenPrice', address],
+  queryFn: async ({ address }) => {
+    const response = await fetch(`/api/price/${address}`);
+    return response.json();
+  },
+  // Automatic refetch on address change
+  staleTime: 60000,
+});
+```
+
+## Startup Performance
+
+### Defer Non-Critical Work
+
+Use `InteractionManager` to defer work until after initial render:
+
+```typescript
+import { InteractionManager } from 'react-native';
+import { useEffect } from 'react';
+
+function App() {
+  useEffect(() => {
+    InteractionManager.runAfterInteractions(() => {
+      // Defer non-critical initialization
+      initializeAnalytics();
+      preloadHeavyAssets();
+    });
+  }, []);
+  
+  return <MainApp />;
+}
+```
+
+### Lazy Load Screens
+
+Load screens only when navigating to them:
+
+```typescript
+import { lazy, Suspense } from 'react';
+
+// ✅ Lazy load heavy screens
+const SettingsScreen = lazy(() => import('@/screens/Settings'));
+const NFTScreen = lazy(() => import('@/screens/NFT'));
+
+function Navigation() {
+  return (
+    <Stack.Navigator>
+      <Stack.Screen name="Home" component={HomeScreen} />
+      <Stack.Screen name="Settings">
+        {() => (
+          <Suspense fallback={<Loading />}>
+            <SettingsScreen />
+          </Suspense>
+        )}
+      </Stack.Screen>
+    </Stack.Navigator>
+  );
+}
+```
+
+### Use Hermes Engine
+
+Rainbow uses Hermes for better startup performance:
+- Faster app startup
+- Reduced memory usage
+- Better runtime performance
+
+Hermes is enabled by default in React Native 0.70+.
+
+## Network Performance
+
+### Batch API Calls
+
+Combine multiple requests when possible:
+
+```typescript
+// ❌ Bad: Multiple sequential requests
+async function loadData() {
+  const user = await fetchUser();
+  const tokens = await fetchTokens();
+  const prices = await fetchPrices();
+  return { user, tokens, prices };
+}
+
+// ✅ Good: Parallel requests
+async function loadData() {
+  const [user, tokens, prices] = await Promise.all([
+    fetchUser(),
+    fetchTokens(),
+    fetchPrices(),
+  ]);
+  return { user, tokens, prices };
+}
+```
+
+### Cache Aggressively
+
+Use appropriate cache strategies:
+
+```typescript
+import { createQueryStore } from '@/state/internal/createQueryStore';
+
+const useTokenMetadata = createQueryStore({
+  queryKey: ({ address }) => ['metadata', address],
+  queryFn: fetchMetadata,
+  // Token metadata rarely changes
+  staleTime: 24 * 60 * 60 * 1000, // 24 hours
+  cacheTime: Infinity,
+});
+```
+
+### Debounce User Input
+
+```typescript
+import { useDebouncedValue } from 'use-debounce';
+
+function SearchScreen() {
+  const [search, setSearch] = useState('');
+  const [debouncedSearch] = useDebouncedValue(search, 300);
+  
+  const { data } = useTokenSearch({ query: debouncedSearch });
+  
+  return (
+    <>
+      <SearchInput value={search} onChangeText={setSearch} />
+      <Results data={data} />
+    </>
+  );
+}
+```
+
+## Image Performance
+
+### Use Faster Image
+
+Rainbow uses `@candlefinance/faster-image` for better performance:
+
+```typescript
+import { FasterImage } from '@candlefinance/faster-image';
+
+<FasterImage
+  source={{ uri: tokenImageUrl }}
+  style={{ width: 40, height: 40 }}
+  // Optimize with proper resize mode
+  resizeMode="cover"
+  // Cache indefinitely for static images
+  cachePolicy="immutable"
+/>
+```
+
+### Optimize Image Sizes
+
+Request appropriately sized images:
+
+```typescript
+import ImgixClient from 'imgix-core-js';
+
+const imgix = new ImgixClient({ domain: 'rainbow.imgix.net' });
+
+// ✅ Request image at exact display size
+const imageUrl = imgix.buildURL('token.png', {
+  w: 80,  // width in pixels
+  h: 80,  // height in pixels
+  fit: 'crop',
+  auto: 'format,compress',
+});
+```
+
+## Animation Performance
+
+### Use Reanimated
+
+Use `react-native-reanimated` for performant animations:
+
+```typescript
+import Animated, { 
+  useAnimatedStyle, 
+  withTiming 
+} from 'react-native-reanimated';
+
+function AnimatedComponent({ visible }: { visible: boolean }) {
+  const style = useAnimatedStyle(() => ({
+    opacity: withTiming(visible ? 1 : 0, { duration: 200 }),
+  }));
+  
+  return <Animated.View style={style}>{...}</Animated.View>;
+}
+```
+
+### Avoid Layout Animations
+
+Layout animations are expensive. Use transform instead:
+
+```typescript
+// ❌ Bad: Layout animation (expensive)
+const style = useAnimatedStyle(() => ({
+  width: withTiming(expanded ? 200 : 100),
+}));
+
+// ✅ Good: Transform animation (60fps)
+const style = useAnimatedStyle(() => ({
+  transform: [{
+    scaleX: withTiming(expanded ? 2 : 1),
+  }],
+}));
+```
+
+## Custom Styling Engine
+
+Rainbow uses a custom styling engine (`styled-thing`) instead of `styled-components` for better performance:
+
+```typescript
+import { Box, Text } from '@/design-system';
+
+// ✅ Uses optimized styling engine
+<Box padding="16px" backgroundColor="surface">
+  <Text size="16px" weight="bold">Fast styling</Text>
+</Box>
+```
+
+From `src/framework/ui/styled-thing/README.md`:
+> Custom styling engine created as a performance replacement for `styled-components`. `styled-components` transforms style objects into CSS strings, generates class name hashes, and parses them back into objects for React Native. This implementation operates directly on style objects, resulting in significant performance improvement, particularly on Android.
+
+## Performance Monitoring
+
+### Use Performance Tracking
+
+Rainbow includes performance tracking:
+
+```typescript
+import { useStartTime, useEndTime } from '@/performance/tracking';
+
+function Screen() {
+  useStartTime('screen_load');
+  
+  useEffect(() => {
+    useEndTime('screen_load');
+  }, []);
+  
+  return <View>{...}</View>;
+}
+```
+
+### Use Shopify Performance
+
+Rainbow uses `@shopify/react-native-performance`:
+
+```typescript
+import { Performance } from '@shopify/react-native-performance';
+
+// Measure custom operations
+Performance.mark('operation_start');
+await heavyOperation();
+Performance.mark('operation_end');
+Performance.measure('operation', 'operation_start', 'operation_end');
+```
+
+## Profiling Tools
+
+### React DevTools Profiler
+
+1. Enable profiling in React DevTools
+2. Record a session
+3. Identify components with long render times
+4. Optimize with memoization
+
+### Flipper
+
+Use Flipper for debugging:
+- Network inspector
+- Performance monitor
+- Memory profiler
+- Layout inspector
+
+### Hermes Profiler
+
+```bash
+# Enable profiling
+yarn ios --configuration Release
+
+# In app, shake device > Enable Sampling Profiler
+# Record profile
+# Download profile and analyze with Chrome DevTools
+```
+
+## Verification Checklist
+
+Before submitting performance-related changes:
+
+- [ ] No barrel file imports
+- [ ] Heavy dependencies lazy loaded
+- [ ] List components memoized
+- [ ] Proper list virtualization
+- [ ] Selective state subscriptions
+- [ ] Images properly sized
+- [ ] Animations use Reanimated
+- [ ] No inline objects/functions in render
+- [ ] Tested on low-end devices
+- [ ] Profiled with React DevTools
+- [ ] No memory leaks
+- [ ] Network requests batched/cached
+
+## Performance Testing
+
+Test performance on actual devices:
+
+```bash
+# Test on release build (more accurate)
+yarn ios --configuration Release
+yarn android --variant=release
+
+# Monitor performance
+# - Startup time
+# - Time to interactive
+# - List scroll performance
+# - Animation frame rate
+# - Memory usage
+```
+
+## Common Performance Issues
+
+### Issue: Slow List Scrolling
+
+**Solutions:**
+- Use FlashList instead of FlatList
+- Memoize list items
+- Reduce item complexity
+- Use `getItemType` for heterogeneous lists
+
+### Issue: Slow Screen Navigation
+
+**Solutions:**
+- Lazy load screens
+- Defer heavy operations
+- Reduce initial render complexity
+- Use loading states
+
+### Issue: High Memory Usage
+
+**Solutions:**
+- Clear caches periodically
+- Unsubscribe from stores
+- Release image resources
+- Remove event listeners
+
+### Issue: Jank During Animations
+
+**Solutions:**
+- Use Reanimated instead of Animated
+- Run animations on UI thread
+- Avoid layout animations
+- Use transform instead of layout changes
+
+## Additional Resources
+
+<CardGroup cols={2}>
+  <Card title="Code Conventions" icon="code" href="/contributing/code-conventions">
+    Learn about coding standards
+  </Card>
+  <Card title="React Native Performance" icon="rocket" href="https://reactnative.dev/docs/performance">
+    Official performance guide
+  </Card>
+  <Card title="Reanimated Docs" icon="wand-magic-sparkles" href="https://docs.swmansion.com/react-native-reanimated/">
+    Animation performance guide
+  </Card>
+  <Card title="FlashList" icon="list" href="https://shopify.github.io/flash-list/">
+    High-performance list component
+  </Card>
+</CardGroup>

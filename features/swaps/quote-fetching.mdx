@@ -1,0 +1,550 @@
+---
+title: Quote Fetching
+description: How Rainbow fetches and optimizes swap quotes from multiple sources
+---
+
+Rainbow's quote fetching system aggregates liquidity from multiple DEXs and aggregators to find the best swap rates.
+
+## Quote Architecture
+
+Quotes are fetched reactively using shared values:
+
+```typescript
+// From src/__swaps__/utils/quotes.ts
+import { type Quote, type CrosschainQuote, type QuoteError } from '@rainbow-me/swaps';
+
+// Type guards for quote responses
+export function isQuoteError(data: unknown): data is QuoteError {
+  return typeof data === 'object' && 
+         data !== null && 
+         'error' in data && 
+         data.error === true;
+}
+
+export function isQuote(data: Quote | QuoteError | null): data is Quote {
+  return typeof data === 'object' && 
+         data !== null && 
+         'sellAmount' in data && 
+         'buyAmount' in data && 
+         !isQuoteError(data);
+}
+
+export function isCrosschainQuote(
+  data: Quote | CrosschainQuote | QuoteError | null
+): data is CrosschainQuote {
+  return typeof data === 'object' && 
+         data !== null && 
+         'swapType' in data && 
+         data.swapType === SwapType.crossChain;
+}
+```
+
+## Quote Parameters
+
+Building quote request:
+
+```typescript
+// From src/__swaps__/utils/swaps.ts
+type QuoteParams = {
+  source?: string;              // Aggregator preference ('auto' | specific)
+  chainId: ChainId;            // Source chain
+  fromAddress: Address;        // User wallet
+  sellTokenAddress: Address;   // Input token contract
+  buyTokenAddress: Address;    // Output token contract
+  sellAmount?: string;         // Input amount (if user typed input)
+  buyAmount?: string;          // Output amount (if user typed output)
+  slippage: number;            // Slippage in bips
+  refuel?: boolean;            // Get gas on destination (cross-chain)
+  toChainId?: ChainId;         // Destination chain (cross-chain)
+  currency: NativeCurrencyKey; // Display currency (USD, EUR, etc.)
+};
+
+export const buildQuoteParams = ({
+  currentAddress,
+  inputAmount,
+  outputAmount,
+  inputAsset,
+  outputAsset,
+  lastTypedInput,
+}: BuildQuoteParamsProps): QuoteParams | null => {
+  const { source, slippage } = swapsStore.getState();
+  
+  if (!inputAsset || !outputAsset) return null;
+  
+  const isCrosschainSwap = inputAsset.chainId !== outputAsset.chainId;
+  
+  return {
+    source: source === 'auto' ? undefined : source,
+    chainId: inputAsset.chainId,
+    fromAddress: currentAddress,
+    sellTokenAddress: inputAsset.isNativeAsset 
+      ? ETH_ADDRESS 
+      : getAddress(inputAsset.address),
+    buyTokenAddress: outputAsset.isNativeAsset 
+      ? ETH_ADDRESS 
+      : getAddress(outputAsset.address),
+    // Only include amount for the field user typed
+    sellAmount: lastTypedInput === 'inputAmount' || lastTypedInput === 'inputNativeValue'
+      ? convertAmountToRawAmount(inputAmount.toString(), inputAsset.decimals)
+      : undefined,
+    buyAmount: lastTypedInput === 'outputAmount' || lastTypedInput === 'outputNativeValue'
+      ? convertAmountToRawAmount(outputAmount.toString(), outputAsset.decimals)
+      : undefined,
+    slippage: Number(slippage),
+    refuel: false,
+    toChainId: isCrosschainSwap ? outputAsset.chainId : inputAsset.chainId,
+    currency: store.getState().settings.nativeCurrency,
+  };
+};
+```
+
+## Quote Sources
+
+Rainbow aggregates quotes from multiple sources:
+
+### DEX Aggregators
+
+<Tabs>
+  <Tab title="Rainbow Swap">
+    **Rainbow's Aggregator**
+    
+    Features:
+    - Multi-DEX routing
+    - MEV protection
+    - Optimized gas
+    - Best price guarantee
+  </Tab>
+  
+  <Tab title="0x Protocol">
+    **0x Swap API**
+    
+    Features:
+    - Aggregates 100+ liquidity sources
+    - Professional market makers
+    - Smart order routing
+    - High liquidity
+  </Tab>
+  
+  <Tab title="Cross-Chain">
+    **Bridge Aggregators**
+    
+    For cross-chain swaps:
+    - Socket
+    - Li.Fi
+    - Across Protocol
+    - Optimized bridge routes
+  </Tab>
+</Tabs>
+
+### Source Selection
+
+```typescript
+// User can choose preferred source
+const swapSettings = useSwapSettings();
+
+// Options:
+// - 'auto': Rainbow selects best (default)
+// - 'rainbow': Force Rainbow aggregator
+// - '0x': Force 0x protocol
+// - etc.
+```
+
+## Quote Fetching Flow
+
+<Steps>
+  <Step title="Trigger Quote">
+    Quote request triggered when:
+    - User types amount
+    - Asset selection changes
+    - Slippage adjusted
+    - Periodic refresh (12s)
+  </Step>
+  
+  <Step title="Build Parameters">
+    Construct quote params:
+    - Extract current state
+    - Validate inputs
+    - Convert amounts to wei
+    - Add user preferences
+  </Step>
+  
+  <Step title="Fetch Quotes">
+    Query aggregators in parallel:
+    ```typescript
+    const quotes = await Promise.allSettled([
+      fetchRainbowQuote(params),
+      fetch0xQuote(params),
+      // More sources...
+    ]);
+    ```
+  </Step>
+  
+  <Step title="Compare & Select">
+    Choose best quote:
+    - Compare output amounts
+    - Account for gas costs
+    - Consider price impact
+    - Verify route safety
+  </Step>
+  
+  <Step title="Update UI">
+    Display quote to user:
+    - Show exchange rate
+    - Display estimated output
+    - Show fees and gas
+    - Enable swap button
+  </Step>
+</Steps>
+
+## Quote Validation
+
+Quotes are validated before display:
+
+### Error Suppression
+
+```typescript
+// From src/__swaps__/utils/quotes.ts
+const SUPPRESSED_QUOTE_ERRORS = new Set([
+  'error parsing sellAmount'
+]);
+
+export function shouldSuppressQuoteError(message: string): boolean {
+  return SUPPRESSED_QUOTE_ERRORS.has(message);
+}
+```
+
+Some errors are expected and don't need user notification:
+- Parsing errors (user still typing)
+- Insufficient liquidity (amount too large)
+- Temporary network issues
+
+### Cross-Chain Validation
+
+```typescript
+export function crosschainQuoteTargetsRecipient(
+  quote: CrosschainQuote,
+  recipient: string
+): boolean {
+  if (!recipient) return false;
+  if (quote.routes.length === 0) return true;
+  
+  const normalized = recipient.toLowerCase();
+  
+  // Verify all routes target correct recipient
+  return quote.routes.every(route => {
+    const routeRecipientOk = 
+      !route.recipient || 
+      route.recipient.toLowerCase() === normalized;
+    
+    const txRecipientsOk = (route.userTxs ?? []).every(tx => 
+      !tx.recipient || 
+      tx.recipient.toLowerCase() === normalized
+    );
+    
+    return routeRecipientOk && txRecipientsOk;
+  });
+}
+```
+
+<Warning>
+  For cross-chain swaps, Rainbow validates that all route steps send tokens to your wallet, not an intermediate address. This prevents loss of funds.
+</Warning>
+
+## Quote Refresh
+
+Quotes automatically refresh to stay current:
+
+### Refresh Intervals
+
+```typescript
+// From swap provider
+const QUOTE_REFRESH_INTERVAL = 12000; // 12 seconds
+
+const quoteFetchingInterval = useAnimatedInterval({
+  interval: QUOTE_REFRESH_INTERVAL,
+  enabled: shouldFetchQuote,
+  callback: () => {
+    fetchQuote();
+  },
+});
+```
+
+### Staleness Detection
+
+```typescript
+const isQuoteStale = useSharedValue<number>(0);
+
+// Quote marked stale when:
+// - 12+ seconds since last fetch
+// - User changed inputs
+// - Price moved significantly
+
+if (isQuoteStale.value > 12) {
+  showWarning('Quote may be outdated - refreshing...');
+  fetchQuote();
+}
+```
+
+## Quote Display
+
+Quote information shown to user:
+
+### Exchange Rate
+
+```typescript
+const exchangeRate = useDerivedValue(() => {
+  if (!quote.value || isQuoteError(quote.value)) return null;
+  
+  const { sellAmount, buyAmount, sellTokenAsset, buyTokenAsset } = quote.value;
+  
+  // Calculate rate: 1 input token = X output tokens
+  const rate = divWorklet(
+    formatUnits(buyAmount, buyTokenAsset.decimals),
+    formatUnits(sellAmount, sellTokenAsset.decimals)
+  );
+  
+  return {
+    rate,
+    display: `1 ${sellTokenAsset.symbol} = ${rate} ${buyTokenAsset.symbol}`,
+  };
+});
+```
+
+### Price Impact
+
+```typescript
+const priceImpact = useDerivedValue(() => {
+  if (!quote.value || !marketPrice.value) return null;
+  
+  const quotePrice = divWorklet(
+    quote.value.buyAmount,
+    quote.value.sellAmount
+  );
+  
+  const impact = divWorklet(
+    subWorklet(quotePrice, marketPrice.value),
+    marketPrice.value
+  );
+  
+  return mulWorklet(impact, 100); // Convert to percentage
+});
+```
+
+### Minimum Received
+
+```typescript
+const minimumReceived = useDerivedValue(() => {
+  if (!quote.value || isQuoteError(quote.value)) return null;
+  
+  const { buyAmount } = quote.value;
+  const slippageBips = swapSettings.slippage;
+  
+  // Calculate minimum after slippage
+  const slippageMultiplier = divWorklet(
+    subWorklet(10000, slippageBips),
+    10000
+  );
+  
+  return mulWorklet(buyAmount, slippageMultiplier);
+});
+```
+
+## Quote Errors
+
+Handling failed quote requests:
+
+<AccordionGroup>
+  <Accordion title="Insufficient Liquidity">
+    **Error**: Not enough liquidity for amount
+    
+    **Handling**:
+    - Show warning to user
+    - Suggest smaller amount
+    - Display available liquidity
+    - Offer to split trade
+  </Accordion>
+  
+  <Accordion title="Unsupported Pair">
+    **Error**: Token pair not available
+    
+    **Handling**:
+    - Verify tokens exist on chain
+    - Check multi-hop routes
+    - Suggest alternative tokens
+    - Try different chain
+  </Accordion>
+  
+  <Accordion title="Network Error">
+    **Error**: Cannot reach quote API
+    
+    **Handling**:
+    - Retry with backoff
+    - Try alternate aggregators
+    - Show connection error
+    - Cache last valid quote
+  </Accordion>
+  
+  <Accordion title="Invalid Amount">
+    **Error**: Amount parsing failed
+    
+    **Handling**:
+    - Suppress error (user typing)
+    - Validate on blur
+    - Show format hint
+    - Clear invalid input
+  </Accordion>
+</AccordionGroup>
+
+## Cross-Chain Quote Details
+
+Additional data for bridge swaps:
+
+```typescript
+interface CrosschainQuote extends Quote {
+  swapType: SwapType.crossChain;
+  
+  routes: Array<{
+    // Bridge information
+    bridgeRoute: {
+      bridge: string;        // Bridge protocol
+      steps: BridgeStep[];  // Multi-step routes
+      estimatedTime: number; // Seconds
+    };
+    
+    // Transactions user must sign
+    userTxs?: Array<{
+      to: string;
+      data: string;
+      value: string;
+      chainId: ChainId;
+    }>;
+    
+    // Service time estimate
+    serviceTime?: number;    // Seconds to complete
+    
+    // Recipient validation
+    recipient?: string;
+  }>;
+}
+```
+
+### Service Time Display
+
+```typescript
+// From src/__swaps__/utils/swaps.ts
+export const getCrossChainTimeEstimateWorklet = ({
+  serviceTime,
+}: {
+  serviceTime?: number;
+}) => {
+  'worklet';
+  
+  let isLongWait = false;
+  let timeEstimateDisplay;
+  const timeEstimate = serviceTime;
+  
+  const minutes = Math.floor((timeEstimate || 0) / 60);
+  const hours = Math.floor(minutes / 60);
+  
+  if (hours >= 1) {
+    isLongWait = true;
+    timeEstimateDisplay = `>${hours} ${hours === 1 ? 'hour' : 'hours'}`;
+  } else if (minutes >= 1) {
+    timeEstimateDisplay = `~${minutes} ${minutes === 1 ? 'min' : 'mins'}`;
+  } else {
+    timeEstimateDisplay = `~${timeEstimate} ${timeEstimate === 1 ? 'sec' : 'secs'}`;
+  }
+  
+  return { isLongWait, timeEstimate, timeEstimateDisplay };
+};
+```
+
+<Note>
+  Cross-chain swaps can take from a few minutes to several hours depending on:
+  - Bridge protocol used
+  - Network congestion on both chains
+  - Number of confirmations required
+  - Type of bridge (fast vs. canonical)
+</Note>
+
+## Quote Optimization
+
+Rainbow optimizes quote selection:
+
+### Best Quote Selection
+
+```typescript
+const selectBestQuote = (quotes: Quote[]): Quote => {
+  return quotes.reduce((best, current) => {
+    // Calculate net output after gas
+    const bestNet = subWorklet(
+      best.buyAmount,
+      mulWorklet(best.gas, best.gasPrice || '0')
+    );
+    
+    const currentNet = subWorklet(
+      current.buyAmount,
+      mulWorklet(current.gas, current.gasPrice || '0')
+    );
+    
+    // Choose quote with highest net output
+    return greaterThanWorklet(currentNet, bestNet) ? current : best;
+  });
+};
+```
+
+### Gas-Adjusted Returns
+
+Quotes compared after gas costs:
+- Calculate gas cost in output token
+- Subtract from expected output
+- Compare net returns
+- Select highest net value
+
+## Performance Optimizations
+
+### Debounced Fetching
+
+```typescript
+const debouncedFetchQuote = useMemo(
+  () => debounce(fetchQuote, 300),
+  []
+);
+
+// Debounce user input to avoid excessive API calls
+useEffect(() => {
+  if (inputAmount) {
+    debouncedFetchQuote();
+  }
+}, [inputAmount]);
+```
+
+### Parallel Requests
+
+- Query multiple aggregators simultaneously
+- Return first successful quote
+- Continue fetching for comparison
+- Cancel slow requests
+
+### Caching
+
+- Cache recent quotes
+- Reuse for similar amounts
+- Invalidate on price changes
+- Persist across app restarts
+
+## Related Features
+
+<CardGroup cols={2}>
+  <Card title="Swaps Overview" icon="arrow-right-arrow-left" href="/features/swaps/overview">
+    Complete swap functionality
+  </Card>
+  
+  <Card title="Gas Estimation" icon="gauge-high" href="/features/swaps/gas-estimation">
+    How gas is calculated
+  </Card>
+  
+  <Card title="Atomic Swaps" icon="atom" href="/features/swaps/atomic-swaps">
+    Advanced swap features
+  </Card>
+</CardGroup>

@@ -1,0 +1,334 @@
+---
+title: Installation
+description: Install dependencies and set up the Rainbow Wallet project
+---
+
+Once you have all [prerequisites](/setup/prerequisites) installed, you can install Rainbow's dependencies and run the setup script.
+
+## Quick Install
+
+The recommended installation process:
+
+```bash
+# Install JavaScript dependencies and run setup
+yarn install && yarn setup
+```
+
+This runs:
+1. `yarn install` - Installs all npm dependencies
+2. `yarn setup` - Runs GraphQL codegen, design system setup, and fetches network configs
+
+## What the Setup Does
+
+The `yarn setup` command runs several initialization tasks:
+
+<Steps>
+  <Step title="GraphQL Codegen Install">
+    Installs dependencies for the GraphQL codegen workspace:
+    
+    ```bash
+    cd src/graphql && yarn install
+    ```
+  </Step>
+  
+  <Step title="Design System Install">
+    Installs dependencies for the design system docs:
+    
+    ```bash
+    cd src/design-system/docs && yarn install
+    ```
+  </Step>
+  
+  <Step title="Generate GraphQL Types">
+    Generates TypeScript types from GraphQL schemas:
+    
+    ```bash
+    yarn graphql-codegen
+    ```
+  </Step>
+  
+  <Step title="Fetch Network Configs">
+    Downloads backend network configurations:
+    
+    ```bash
+    yarn fetch:networks
+    ```
+  </Step>
+</Steps>
+
+<Info>
+  The setup script is defined in `package.json` as:
+  ```json
+  "setup": "yarn graphql-codegen:install && yarn ds:install && yarn graphql-codegen && yarn fetch:networks"
+  ```
+</Info>
+
+## Postinstall Script
+
+When you run `yarn install`, a postinstall script automatically runs:
+
+```bash
+./scripts/postinstall.sh
+```
+
+This script:
+- Generates native build configurations
+- Patches the iOS `GoogleService-Info.plist` with your API key from `.env`
+- Runs prebuild hooks from `rainbow-scripts` (internal developers only)
+
+<Warning>
+  For internal developers: ensure `.env` and `rainbow-scripts` are set up **before** running `yarn install`.
+</Warning>
+
+## Full Installation Options
+
+Depending on your platform, you may want different installation commands:
+
+<CodeGroup>
+
+```bash Standard
+# Standard install (recommended)
+yarn install && yarn setup
+```
+
+```bash With iOS Pods
+# Install everything including iOS CocoaPods
+yarn install-all
+```
+
+```bash Fast iOS Setup
+# Skip CocoaPods repo update (faster)
+yarn fast
+```
+
+```bash Without Flipper
+# Install without Flipper debugger (lighter build)
+yarn install-all-no-flipper
+```
+
+</CodeGroup>
+
+### Installation Commands Reference
+
+| Command | Description |
+|---------|-------------|
+| `yarn install` | Install npm dependencies |
+| `yarn setup` | Run GraphQL codegen and fetch configs |
+| `yarn install-all` | Install everything including CocoaPods with repo update |
+| `yarn fast` | Install everything with fast CocoaPods (no repo update) |
+| `yarn install-all-no-flipper` | Install without Flipper debugger |
+
+## Platform-Specific Setup
+
+After the base installation, you need to configure your target platform(s):
+
+<CardGroup cols={2}>
+  <Card title="iOS Setup" icon="apple" href="/setup/ios">
+    Install Xcode, Watchman, and CocoaPods for iOS development
+  </Card>
+  <Card title="Android Setup" icon="android" href="/setup/android">
+    Set up JDK 17, Android Studio, and Android SDK
+  </Card>
+</CardGroup>
+
+## Verify Installation
+
+After installation completes, verify everything is set up correctly:
+
+<Steps>
+  <Step title="Check for node_modules">
+    ```bash
+    ls -la node_modules/
+    ```
+    
+    You should see thousands of installed packages.
+  </Step>
+  
+  <Step title="Verify GraphQL codegen">
+    ```bash
+    ls -la src/graphql/src/__generated__/
+    ```
+    
+    Generated GraphQL types should exist.
+  </Step>
+  
+  <Step title="Run linting">
+    ```bash
+    yarn lint:ts
+    ```
+    
+    TypeScript should compile without errors.
+  </Step>
+</Steps>
+
+## CI Installation
+
+For continuous integration environments, use the CI setup script:
+
+```bash
+./scripts/setup-ci.sh
+```
+
+This is optimized for CI and skips interactive steps.
+
+## Updating Dependencies
+
+### Update JavaScript Packages
+
+```bash
+# Update all dependencies
+yarn install
+
+# Update a specific package
+yarn add package-name@latest
+```
+
+### Update iOS Pods
+
+```bash
+# Full update with repo refresh
+yarn install-pods
+
+# Fast update (no repo refresh)
+yarn install-pods-fast
+```
+
+### Update Android Dependencies
+
+Android dependencies are managed in `android/app/build.gradle` and sync automatically when opening Android Studio.
+
+## Cleaning & Reinstalling
+
+If you encounter issues, you may need to clean and reinstall:
+
+<Tabs>
+  <Tab title="Clean All">
+    Nuclear option - removes everything and reinstalls:
+    
+    ```bash
+    ./scripts/nuke.sh
+    ```
+    
+    This removes:
+    - `node_modules/`
+    - iOS build artifacts and pods
+    - Android build artifacts
+    - Metro bundler cache
+    - Gradle cache
+  </Tab>
+  
+  <Tab title="Clean Node Modules">
+    ```bash
+    yarn clean:node
+    yarn install
+    ```
+  </Tab>
+  
+  <Tab title="Clean iOS">
+    ```bash
+    yarn clean:ios
+    yarn install-pods
+    ```
+  </Tab>
+  
+  <Tab title="Clean Android">
+    ```bash
+    yarn clean:android
+    cd android && ./gradlew clean
+    ```
+  </Tab>
+  
+  <Tab title="Clean Metro Cache">
+    ```bash
+    yarn clean:packager
+    yarn start --reset-cache
+    ```
+  </Tab>
+</Tabs>
+
+## Environment Variables
+
+Key environment variables in your `.env` file:
+
+```bash
+# Testing mode (enables test-only features)
+IS_TESTING=false
+
+# Enable developer mode
+ENABLE_DEV_MODE=1
+
+# Design system playground
+ENABLE_DESIGN_SYSTEM_PLAYGROUND=false
+
+# Disable Reanimated (for debugging)
+DISABLE_REANIMATED=NO
+
+# API keys
+ETHERSCAN_API_KEY=your_key_here
+GOOGLE_SERVICE_API_KEY=your_key_here
+IMGIX_DOMAIN=your_domain_here
+IMGIX_TOKEN=your_token_here
+
+# RPC endpoints
+ETHEREUM_MAINNET_RPC=your_rpc_url
+POLYGON_MAINNET_RPC=your_rpc_url
+ARBITRUM_MAINNET_RPC=your_rpc_url
+OPTIMISM_MAINNET_RPC=your_rpc_url
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Postinstall script fails">
+    If the postinstall script fails, you can run it manually:
+    
+    ```bash
+    ./scripts/postinstall.sh
+    ```
+    
+    For internal developers, ensure `rainbow-scripts` is cloned and `.env` exists.
+  </Accordion>
+  
+  <Accordion title="GraphQL codegen errors">
+    If GraphQL codegen fails, try running it manually:
+    
+    ```bash
+    yarn graphql-codegen
+    ```
+    
+    You may need to set up the Graph ENS key:
+    
+    ```bash
+    ./scripts/graph-ens-key.sh
+    ```
+  </Accordion>
+  
+  <Accordion title="yarn install is slow">
+    Yarn 4 uses Zero-Installs with PnP, which should be fast. If it's slow:
+    
+    1. Check your network connection
+    2. Clear yarn cache: `yarn cache clean`
+    3. Try again: `yarn install`
+  </Accordion>
+  
+  <Accordion title="node-gyp build failures">
+    Some native modules may fail to build. Ensure you have:
+    
+    - Xcode Command Line Tools (macOS): `xcode-select --install`
+    - Python 3 installed
+    - Correct Node.js version (22+)
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+With dependencies installed, continue to platform-specific setup:
+
+<CardGroup cols={2}>
+  <Card title="iOS Setup" icon="apple" href="/setup/ios">
+    Configure Xcode and CocoaPods for iOS development
+  </Card>
+  <Card title="Android Setup" icon="android" href="/setup/android">
+    Set up Android Studio and SDK for Android development
+  </Card>
+</CardGroup>

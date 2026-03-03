@@ -1,0 +1,611 @@
+---
+title: Storage System
+description: MMKV-based high-performance persistent storage
+---
+
+Rainbow uses [react-native-mmkv](https://github.com/mrousavy/react-native-mmkv) for fast, synchronous key-value storage. MMKV is significantly faster than AsyncStorage and provides encryption support.
+
+## Overview
+
+The storage system provides:
+- **High performance** - Synchronous, memory-mapped I/O
+- **Type safety** - Generic Storage class with schema validation
+- **Scoped storage** - Separate instances for different data domains
+- **Encryption support** - Optional encryption for sensitive data
+- **JSON serialization** - Automatic handling of complex types
+
+## Storage Instances
+
+Rainbow exports several pre-configured storage instances:
+
+```typescript src/storage/index.ts
+import { createMMKV, type MMKV } from 'react-native-mmkv';
+import { type Device, type Review, type Cards } from '@/storage/schema';
+
+// Device-level data (not user-specific)
+export const device = new Storage<[], Device>({ id: 'global' });
+
+// Review prompt tracking
+export const review = new Storage<[], Review>({ id: 'review' });
+
+// Card visibility states
+export const cards = new Storage<[], Cards>({ id: 'cards' });
+
+// Encrypted storage for Mobile Wallet Protocol
+const mwpStorage = new Storage<[], { [key: string]: string }>({
+  id: 'mwp',
+  encryptionKey: process.env.MWP_ENCRYPTION_KEY,
+});
+```
+
+## Storage Class
+
+The generic `Storage` class provides type-safe access:
+
+```typescript src/storage/index.ts
+export class Storage<Scopes extends unknown[], Schema> {
+  protected sep = ':';
+  protected store: MMKV;
+
+  constructor({ id, encryptionKey }: { id: string; encryptionKey?: string }) {
+    this.store = createMMKV({ id, encryptionKey });
+  }
+
+  // Store a value
+  set<Key extends keyof Schema>(scopes: [...Scopes, Key], data: Schema[Key]): void {
+    this.store.set(scopes.join(this.sep), JSON.stringify({ data }));
+  }
+
+  // Get a value
+  get<Key extends keyof Schema>(scopes: [...Scopes, Key]): Schema[Key] | undefined {
+    const res = this.store.getString(scopes.join(this.sep));
+    if (!res) return undefined;
+    return JSON.parse(res).data;
+  }
+
+  // Remove a value
+  remove<Key extends keyof Schema>(scopes: [...Scopes, Key]) {
+    this.store.remove(scopes.join(this.sep));
+  }
+
+  // Clear all values
+  clear() {
+    this.store.clearAll();
+  }
+
+  // Remove many values
+  removeMany<Key extends keyof Schema>(scopes: [...Scopes], keys: Key[]) {
+    keys.forEach(key => this.remove([...scopes, key]));
+  }
+
+  // Add encryption
+  encrypt(newEncryptionKey: string): void {
+    this.store.recrypt(newEncryptionKey);
+  }
+
+  // Remove encryption
+  removeEncryption(): void {
+    this.store.recrypt(undefined);
+  }
+}
+```
+
+## Schema Definition
+
+Define storage schemas for type safety:
+
+```typescript src/storage/schema.ts
+/**
+ * Device data that's specific to the device and does not vary
+ * based on network or active wallet
+ */
+export type Device = {
+  id: string;
+  doNotTrack: boolean;
+  isReturningUser: boolean;
+  branchFirstReferringParamsSet: boolean;
+  hasSeenPerpsExplainSheet: boolean;
+  hasSeenPolymarketExplainSheet: boolean;
+};
+
+/**
+ * Review prompt tracking
+ */
+export type Review = {
+  actions: Action[];
+  promptTimestamps: number[];
+};
+
+export type Action = {
+  id: ReviewPromptAction;
+  numOfTimesDispatched: number;
+};
+
+export enum ReviewPromptAction {
+  UserPrompt = 'UserPrompt',
+  AddingContact = 'AddingContact',
+  EnsNameSearch = 'EnsNameSearch',
+  EnsNameRegistration = 'EnsNameRegistration',
+  NftFloorPriceVisit = 'NftFloorPriceVisit',
+  ViewedWalletScreen = 'ViewedWalletScreen',
+}
+
+/**
+ * Card visibility states
+ */
+export type Cards = {
+  [cardKey: string]: boolean;
+};
+```
+
+## Basic Usage
+
+### Reading and Writing
+
+```typescript
+import { device } from '@/storage';
+
+// Write a value
+device.set(['doNotTrack'], true);
+
+// Read a value
+const doNotTrack = device.get(['doNotTrack']);
+// Type: boolean | undefined
+
+// Remove a value
+device.remove(['doNotTrack']);
+```
+
+### Multiple Values
+
+```typescript
+import { cards } from '@/storage';
+
+// Set multiple cards
+cards.set(['welcomeCard'], false);
+cards.set(['rewardsCard'], true);
+cards.set(['promoCard'], false);
+
+// Get all (iterate)
+const cardStates = {
+  welcome: cards.get(['welcomeCard']),
+  rewards: cards.get(['rewardsCard']),
+  promo: cards.get(['promoCard']),
+};
+
+// Remove multiple
+cards.removeMany([], ['welcomeCard', 'promoCard']);
+```
+
+### Clear All
+
+```typescript
+import { review } from '@/storage';
+
+// Clear all review data
+review.clear();
+```
+
+## Creating Custom Storage
+
+### Define Schema
+
+```typescript
+// myStorage.ts
+import { Storage } from '@/storage';
+
+type UserPreferences = {
+  theme: 'light' | 'dark';
+  language: string;
+  fontSize: number;
+  notifications: boolean;
+};
+
+export const preferences = new Storage<[], UserPreferences>({
+  id: 'userPreferences',
+});
+```
+
+### Use in App
+
+```typescript
+import { preferences } from './myStorage';
+
+// Set preference
+preferences.set(['theme'], 'dark');
+
+// Get preference with default
+const theme = preferences.get(['theme']) ?? 'light';
+
+// Update notification setting
+preferences.set(['notifications'], false);
+```
+
+## Encryption
+
+### Create Encrypted Storage
+
+```typescript
+import { Storage } from '@/storage';
+
+type SensitiveData = {
+  apiKey: string;
+  authToken: string;
+};
+
+export const secrets = new Storage<[], SensitiveData>({
+  id: 'secrets',
+  encryptionKey: process.env.ENCRYPTION_KEY,
+});
+```
+
+### Add/Remove Encryption
+
+```typescript
+import { secrets } from './storage';
+
+// Add encryption to unencrypted storage
+secrets.encrypt('my-encryption-key');
+
+// Change encryption key
+secrets.encrypt('new-encryption-key');
+
+// Remove encryption
+secrets.removeEncryption();
+```
+
+## Store Integration
+
+MMKV storage integrates with Rainbow stores:
+
+### RainbowStore Persistence
+
+```typescript
+import { createRainbowStore } from '@/state/internal/createRainbowStore';
+
+const useSettingsStore = createRainbowStore(
+  (set) => ({
+    theme: 'light',
+    language: 'en',
+    setTheme: (theme) => set({ theme }),
+  }),
+  {
+    storageKey: 'settings',  // Stored in MMKV
+    version: 1,
+  }
+);
+```
+
+Under the hood, this uses `rainbowStorage` (MMKV):
+
+```typescript src/state/internal/rainbowStorage.ts
+import { createMMKV } from 'react-native-mmkv';
+
+export const rainbowStorage = createMMKV({
+  id: 'rainbow-storage',
+});
+```
+
+### Query Store Persistence
+
+```typescript
+import { createQueryStore } from '@/state/internal/createQueryStore';
+
+const useDataStore = createQueryStore(
+  {
+    fetcher: async () => fetchData(),
+    staleTime: time.minutes(5),
+  },
+  (set, get) => ({
+    // Custom state
+  }),
+  {
+    storageKey: 'cachedData',  // Persists query cache
+    version: 1,
+  }
+);
+```
+
+## Performance Characteristics
+
+### Speed Comparison
+
+| Operation | MMKV | AsyncStorage |
+|-----------|------|-------------|
+| **Write** | 0.1ms | 10-50ms |
+| **Read** | 0.05ms | 5-20ms |
+| **Type** | Synchronous | Asynchronous |
+
+### Why MMKV?
+
+<AccordionGroup>
+  <Accordion title="Synchronous API">
+    No async/await needed - simpler code:
+    
+    ```typescript
+    // MMKV - synchronous
+    const value = storage.get(['key']);
+    
+    // AsyncStorage - asynchronous
+    const value = await AsyncStorage.getItem('key');
+    ```
+  </Accordion>
+  
+  <Accordion title="Memory-mapped I/O">
+    MMKV uses mmap for direct memory access, avoiding serialization overhead.
+  </Accordion>
+  
+  <Accordion title="Built-in encryption">
+    Native AES encryption for sensitive data:
+    
+    ```typescript
+    new Storage({ id: 'secrets', encryptionKey: key });
+    ```
+  </Accordion>
+  
+  <Accordion title="Cross-platform">
+    Same API and performance on iOS and Android.
+  </Accordion>
+</AccordionGroup>
+
+## Data Migration
+
+Handle version migrations:
+
+```typescript
+import { device } from '@/storage';
+
+function migrateDeviceData() {
+  const currentVersion = device.get(['version']) ?? 0;
+  
+  if (currentVersion < 1) {
+    // Migrate to v1
+    const oldValue = device.get(['oldKey']);
+    if (oldValue) {
+      device.set(['newKey'], transformValue(oldValue));
+      device.remove(['oldKey']);
+    }
+    device.set(['version'], 1);
+  }
+  
+  if (currentVersion < 2) {
+    // Migrate to v2
+    // ...
+    device.set(['version'], 2);
+  }
+}
+```
+
+## Legacy Storage
+
+For migrating from AsyncStorage:
+
+```typescript src/storage/legacy.ts
+import { Storage } from '@/storage';
+
+export type Legacy = {
+  [key: string]: any;
+};
+
+export const legacy = new Storage<[], Legacy>({ id: 'legacy' });
+
+// Migrate from AsyncStorage
+export async function migrateLegacyStorage() {
+  const keys = await AsyncStorage.getAllKeys();
+  
+  for (const key of keys) {
+    const value = await AsyncStorage.getItem(key);
+    if (value) {
+      legacy.set([key], JSON.parse(value));
+    }
+  }
+  
+  await AsyncStorage.clear();
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Define schemas">
+    Always define TypeScript schemas for type safety:
+    
+    ```typescript
+    type MySchema = {
+      setting1: boolean;
+      setting2: string;
+    };
+    
+    const storage = new Storage<[], MySchema>({ id: 'my-storage' });
+    ```
+  </Accordion>
+  
+  <Accordion title="Use separate instances">
+    Create separate Storage instances for different domains:
+    
+    ```typescript
+    // ✅ Good - separate instances
+    const device = new Storage({ id: 'device' });
+    const user = new Storage({ id: 'user' });
+    
+    // ❌ Bad - single monolithic instance
+    const storage = new Storage({ id: 'everything' });
+    ```
+  </Accordion>
+  
+  <Accordion title="Encrypt sensitive data">
+    Use encryption for API keys, tokens, etc.:
+    
+    ```typescript
+    const secrets = new Storage({
+      id: 'secrets',
+      encryptionKey: process.env.ENCRYPTION_KEY,
+    });
+    ```
+  </Accordion>
+  
+  <Accordion title="Handle undefined values">
+    Always check for undefined when reading:
+    
+    ```typescript
+    const value = storage.get(['key']) ?? defaultValue;
+    ```
+  </Accordion>
+  
+  <Accordion title="Version your data">
+    Track schema versions for migrations:
+    
+    ```typescript
+    storage.set(['_version'], 2);
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Common Patterns
+
+### Feature Flags
+
+```typescript
+import { device } from '@/storage';
+
+function isFeatureEnabled(feature: string): boolean {
+  return device.get([`feature_${feature}`]) ?? false;
+}
+
+function setFeatureEnabled(feature: string, enabled: boolean): void {
+  device.set([`feature_${feature}`], enabled);
+}
+```
+
+### First-Time User Detection
+
+```typescript
+import { device } from '@/storage';
+
+function isFirstLaunch(): boolean {
+  const hasLaunched = device.get(['hasLaunched']);
+  
+  if (!hasLaunched) {
+    device.set(['hasLaunched'], true);
+    return true;
+  }
+  
+  return false;
+}
+```
+
+### Analytics Opt-Out
+
+```typescript
+import { device } from '@/storage';
+
+function setAnalyticsEnabled(enabled: boolean): void {
+  device.set(['doNotTrack'], !enabled);
+}
+
+function isAnalyticsEnabled(): boolean {
+  return !device.get(['doNotTrack']);
+}
+```
+
+### Cached Responses
+
+```typescript
+import { Storage } from '@/storage';
+
+type CacheEntry<T> = {
+  data: T;
+  timestamp: number;
+};
+
+type ApiCache = {
+  [endpoint: string]: CacheEntry<any>;
+};
+
+const apiCache = new Storage<[], ApiCache>({ id: 'api-cache' });
+
+function cacheResponse<T>(endpoint: string, data: T): void {
+  apiCache.set([endpoint], {
+    data,
+    timestamp: Date.now(),
+  });
+}
+
+function getCachedResponse<T>(endpoint: string, maxAge: number): T | null {
+  const cached = apiCache.get([endpoint]);
+  
+  if (!cached) return null;
+  if (Date.now() - cached.timestamp > maxAge) return null;
+  
+  return cached.data as T;
+}
+```
+
+## Debugging
+
+### View Storage Contents
+
+```typescript
+import { device } from '@/storage';
+
+// In development
+if (__DEV__) {
+  console.log('Device storage:', {
+    doNotTrack: device.get(['doNotTrack']),
+    isReturningUser: device.get(['isReturningUser']),
+  });
+}
+```
+
+### Clear All Storage
+
+```typescript
+import { device, review, cards } from '@/storage';
+
+function clearAllStorage() {
+  device.clear();
+  review.clear();
+  cards.clear();
+  
+  console.log('All storage cleared');
+}
+```
+
+## Testing
+
+```typescript
+import { device } from '@/storage';
+
+describe('Device Storage', () => {
+  beforeEach(() => {
+    // Clear before each test
+    device.clear();
+  });
+  
+  it('stores and retrieves values', () => {
+    device.set(['doNotTrack'], true);
+    expect(device.get(['doNotTrack'])).toBe(true);
+  });
+  
+  it('returns undefined for missing keys', () => {
+    expect(device.get(['nonexistent'])).toBeUndefined();
+  });
+  
+  it('removes values', () => {
+    device.set(['key'], 'value');
+    device.remove(['key']);
+    expect(device.get(['key'])).toBeUndefined();
+  });
+});
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Analytics" icon="chart-line" href="/architecture/analytics">
+    Learn about event tracking
+  </Card>
+  <Card title="Logging" icon="file-text" href="/architecture/logging">
+    Understand the logging system
+  </Card>
+</CardGroup>

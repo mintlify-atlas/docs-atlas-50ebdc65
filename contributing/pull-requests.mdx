@@ -1,0 +1,467 @@
+---
+title: Pull Request Process
+description: Guidelines for submitting pull requests to Rainbow Wallet
+---
+
+Follow these guidelines to ensure your pull request is reviewed and merged smoothly.
+
+## Before You Start
+
+<Steps>
+  <Step title="Check existing issues">
+    Look for existing issues or discussions related to your proposed change. If none exist, consider opening an issue first to discuss major changes.
+  </Step>
+  
+  <Step title="Fork and clone">
+    Fork the Rainbow repository and clone your fork locally:
+    ```bash
+    git clone https://github.com/YOUR_USERNAME/rainbow.git
+    cd rainbow
+    ```
+  </Step>
+  
+  <Step title="Create a branch">
+    Create a new branch for your changes:
+    ```bash
+    git checkout -b feature/your-feature-name
+    ```
+    
+    Use descriptive branch names:
+    - `feature/add-wallet-connect-v2`
+    - `fix/transaction-parsing-bug`
+    - `refactor/improve-state-management`
+  </Step>
+  
+  <Step title="Set up development environment">
+    Follow the [setup instructions](/contributing/overview) to configure your development environment.
+  </Step>
+</Steps>
+
+## Making Changes
+
+### Code Quality Standards
+
+Ensure your code meets Rainbow's quality standards:
+
+<Steps>
+  <Step title="Follow code conventions">
+    Review and follow the [code conventions](/contributing/code-conventions):
+    - Write TypeScript (no JavaScript)
+    - No barrel exports
+    - Use type-only imports
+    - Follow ESLint rules
+  </Step>
+  
+  <Step title="Add tests">
+    Include tests for your changes. See [testing guidelines](/contributing/testing).
+  </Step>
+  
+  <Step title="Update documentation">
+    Update relevant documentation if you're changing APIs, adding features, or modifying behavior.
+  </Step>
+</Steps>
+
+### Commit Your Changes
+
+Write clear, descriptive commit messages:
+
+**Good commit messages:**
+```bash
+git commit -m "Add support for WalletConnect v2"
+git commit -m "Fix transaction list infinite scroll bug"
+git commit -m "Refactor token price store to use createQueryStore"
+```
+
+**Bad commit messages:**
+```bash
+git commit -m "update"
+git commit -m "fix bug"
+git commit -m "changes"
+```
+
+Rainbow uses Husky pre-commit hooks that automatically:
+- Format code with Prettier
+- Lint code with ESLint
+
+If the pre-commit hook fails, fix the issues and commit again.
+
+## Verification Checklist
+
+Before submitting your PR, verify everything passes:
+
+<Steps>
+  <Step title="Run linting">
+    ```bash
+    yarn lint
+    ```
+    
+    This runs:
+    - Format check with Prettier
+    - TypeScript type checking
+    - ESLint
+  </Step>
+  
+  <Step title="Run type checks">
+    ```bash
+    yarn lint:ts
+    ```
+    
+    Ensure no TypeScript errors.
+  </Step>
+  
+  <Step title="Check JavaScript types">
+    ```bash
+    yarn lint:js-types
+    ```
+    
+    Ensure JS files don't regress the error baseline.
+  </Step>
+  
+  <Step title="Run tests">
+    ```bash
+    yarn test
+    ```
+    
+    All tests must pass.
+  </Step>
+  
+  <Step title="Check for circular dependencies">
+    ```bash
+    yarn check:cycles
+    ```
+    
+    Ensure no circular dependencies were introduced.
+  </Step>
+  
+  <Step title="Test on device">
+    Build and test on actual devices (iOS and Android if applicable):
+    ```bash
+    yarn ios
+    yarn android
+    ```
+  </Step>
+</Steps>
+
+## Creating the Pull Request
+
+### Push Your Branch
+
+```bash
+git push origin feature/your-feature-name
+```
+
+### Open the PR
+
+<Steps>
+  <Step title="Navigate to GitHub">
+    Go to the Rainbow repository on GitHub and click "New Pull Request".
+  </Step>
+  
+  <Step title="Select your branch">
+    Select your fork and branch as the source.
+  </Step>
+  
+  <Step title="Fill out the template">
+    Rainbow uses a PR template. Fill it out completely:
+    
+    ```markdown
+    Fixes APP-####
+    
+    ## What changed (plus any additional context for devs)
+    
+    [Describe your changes in detail]
+    
+    ## Screen recordings / screenshots
+    
+    [Add visual proof of your changes]
+    
+    ## What to test
+    
+    [Provide step-by-step testing instructions]
+    ```
+  </Step>
+  
+  <Step title="Write a clear title">
+    Use a descriptive title that summarizes the change:
+    - "Add WalletConnect v2 support"
+    - "Fix transaction parsing for ERC-1155 transfers"
+    - "Improve performance of token list rendering"
+  </Step>
+</Steps>
+
+### PR Description Best Practices
+
+#### What Changed
+
+Provide context for reviewers:
+
+**Good:**
+```markdown
+## What changed
+
+- Migrated transaction store from React Query to createQueryStore
+- Added reactive refetching when wallet address changes
+- Improved error handling with retry logic
+- Updated tests to cover new store behavior
+
+This fixes an issue where transactions weren't updating when
+switching wallets.
+```
+
+**Bad:**
+```markdown
+## What changed
+
+Updated the transaction store.
+```
+
+#### Screen Recordings / Screenshots
+
+For UI changes, always include:
+- Screenshots or screen recordings
+- Before/after comparisons
+- Both iOS and Android if applicable
+
+**Example:**
+```markdown
+## Screen recordings / screenshots
+
+### Before
+![before](url-to-image)
+
+### After
+![after](url-to-image)
+
+### iOS
+[screen-recording.mov]
+
+### Android
+[screen-recording.mp4]
+```
+
+#### What to Test
+
+Provide step-by-step testing instructions:
+
+**Good:**
+```markdown
+## What to test
+
+1. Open the app and navigate to the transaction list
+2. Switch between wallets
+3. Verify transactions update immediately
+4. Send a test transaction
+5. Verify it appears in the list without refreshing
+6. Test on both iOS and Android
+```
+
+**Bad:**
+```markdown
+## What to test
+
+Test the transaction list.
+```
+
+## Review Process
+
+### What to Expect
+
+<Steps>
+  <Step title="Automated checks">
+    CI/CD will run automated checks:
+    - Linting
+    - Type checking
+    - Tests
+    - Build verification
+    
+    All checks must pass before review.
+  </Step>
+  
+  <Step title="Code review">
+    Team members will review your code:
+    - Check for code quality
+    - Verify tests
+    - Test functionality
+    - Suggest improvements
+  </Step>
+  
+  <Step title="Address feedback">
+    Respond to review comments and make requested changes:
+    ```bash
+    # Make changes
+    git add .
+    git commit -m "Address review feedback"
+    git push origin feature/your-feature-name
+    ```
+  </Step>
+  
+  <Step title="Approval and merge">
+    Once approved, a maintainer will merge your PR.
+  </Step>
+</Steps>
+
+### Responding to Review Feedback
+
+- Be open to feedback and suggestions
+- Ask questions if feedback is unclear
+- Make requested changes promptly
+- Mark conversations as resolved when addressed
+- Thank reviewers for their time
+
+## Common PR Issues
+
+### CI/CD Failures
+
+#### Linting Failures
+
+```bash
+# Fix formatting
+yarn format
+
+# Fix ESLint errors
+yarn lint:js --fix
+
+# Commit fixes
+git add .
+git commit -m "Fix linting issues"
+git push
+```
+
+#### Test Failures
+
+```bash
+# Run tests locally
+yarn test
+
+# Fix failing tests
+# Commit fixes
+git add .
+git commit -m "Fix test failures"
+git push
+```
+
+#### Type Errors
+
+```bash
+# Check TypeScript errors
+yarn lint:ts
+
+# Fix type errors
+# Commit fixes
+git add .
+git commit -m "Fix type errors"
+git push
+```
+
+### Merge Conflicts
+
+If your PR has merge conflicts:
+
+<Steps>
+  <Step title="Update your local main">
+    ```bash
+    git checkout main
+    git pull upstream main
+    ```
+  </Step>
+  
+  <Step title="Rebase your branch">
+    ```bash
+    git checkout feature/your-feature-name
+    git rebase main
+    ```
+  </Step>
+  
+  <Step title="Resolve conflicts">
+    Manually resolve conflicts in your editor.
+  </Step>
+  
+  <Step title="Continue rebase">
+    ```bash
+    git add .
+    git rebase --continue
+    ```
+  </Step>
+  
+  <Step title="Force push">
+    ```bash
+    git push origin feature/your-feature-name --force
+    ```
+  </Step>
+</Steps>
+
+### Large PRs
+
+If your PR is too large:
+
+- Consider breaking it into smaller PRs
+- Each PR should focus on one feature or fix
+- Smaller PRs are easier to review and merge
+
+## After Your PR is Merged
+
+<Steps>
+  <Step title="Delete your branch">
+    ```bash
+    git checkout main
+    git branch -D feature/your-feature-name
+    git push origin --delete feature/your-feature-name
+    ```
+  </Step>
+  
+  <Step title="Update your fork">
+    ```bash
+    git pull upstream main
+    git push origin main
+    ```
+  </Step>
+  
+  <Step title="Celebrate">
+    Congratulations! You've contributed to Rainbow Wallet! 🎉
+  </Step>
+</Steps>
+
+## PR Checklist
+
+Use this checklist before submitting:
+
+- [ ] Code follows [code conventions](/contributing/code-conventions)
+- [ ] All tests pass (`yarn test`)
+- [ ] Linting passes (`yarn lint`)
+- [ ] Type checking passes (`yarn lint:ts`)
+- [ ] No circular dependencies (`yarn check:cycles`)
+- [ ] Tests added for new functionality
+- [ ] Documentation updated if needed
+- [ ] PR description is complete and clear
+- [ ] Screenshots/recordings included for UI changes
+- [ ] Testing instructions provided
+- [ ] Tested on actual devices (iOS and Android)
+- [ ] No merge conflicts
+- [ ] Branch is up to date with main
+
+## Getting Help
+
+If you need help with your PR:
+
+- Ask questions in PR comments
+- Review [code conventions](/contributing/code-conventions)
+- Check [testing guidelines](/contributing/testing)
+- Look at recent merged PRs for examples
+- Reach out to maintainers
+
+## Additional Resources
+
+<CardGroup cols={2}>
+  <Card title="Code Conventions" icon="code" href="/contributing/code-conventions">
+    Review coding standards
+  </Card>
+  <Card title="Testing Guidelines" icon="vial" href="/contributing/testing">
+    Learn about testing requirements
+  </Card>
+  <Card title="Contributing Overview" icon="hand-wave" href="/contributing/overview">
+    Setup and getting started
+  </Card>
+  <Card title="Working with GraphQL" icon="diagram-project" href="/contributing/graphql">
+    GraphQL development guide
+  </Card>
+</CardGroup>

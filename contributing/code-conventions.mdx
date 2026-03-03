@@ -1,0 +1,396 @@
+---
+title: Code Conventions
+description: Rainbow Wallet coding standards and style guide
+---
+
+Rainbow follows strict coding conventions to maintain code quality, consistency, and performance.
+
+## Core Principles
+
+### TypeScript First
+
+<Warning>
+  Write all new files in `.ts` or `.tsx`. Remaining JavaScript files are checked against an error baseline (`yarn lint:js-types`) — don't regress it.
+</Warning>
+
+TypeScript provides type safety and better developer experience. All new code must be written in TypeScript.
+
+### No Barrel Exports
+
+<Warning>
+  Import directly from source files, not `index.ts`. Barrel files are strictly forbidden.
+</Warning>
+
+Barrel files (index.ts that re-export from other files) are not allowed because they:
+- Defeat tree-shaking
+- Hide circular dependencies
+- Trigger cascading module loading
+- Hurt build performance
+
+**Bad:**
+```typescript
+// ❌ Don't create barrel files
+// src/features/wallet/index.ts
+export { WalletComponent } from './WalletComponent';
+export { useWallet } from './useWallet';
+
+// ❌ Don't import from barrel files
+import { WalletComponent } from '@/features/wallet';
+```
+
+**Good:**
+```typescript
+// ✅ Import directly from source files
+import { WalletComponent } from '@/features/wallet/WalletComponent';
+import { useWallet } from '@/features/wallet/useWallet';
+```
+
+This rule is enforced by ESLint with a limited allowlist for legacy files.
+
+### Type-Only Imports
+
+Use the `type` annotation for type-only imports to help bundlers optimize:
+
+**Good:**
+```typescript
+import { type UserData } from '@/types/user';
+import { type ComponentProps } from 'react';
+```
+
+**Bad:**
+```typescript
+import { UserData } from '@/types/user';
+```
+
+This is enforced by ESLint via the `@typescript-eslint/consistent-type-imports` rule.
+
+## Code Organization
+
+### Architecture Migration
+
+The codebase is mid-migration toward domain-organized architecture:
+
+- **New code**: Goes in `src/features/` with `ui/data/core` layer separation
+- **Legacy code**: Lives in flat top-level directories (`components/`, `screens/`, `hooks/`, `helpers/`, `utils/`)
+
+**Example feature structure:**
+```
+src/features/wallet/
+  ├── ui/              # React components
+  ├── data/
+  │   └── stores/      # State management
+  └── core/            # Business logic
+```
+
+### Key Directories
+
+- `src/framework/` — App-agnostic infrastructure (http, safe math, UI primitives)
+- `src/__swaps__/` — Swap feature, aliased as `@/swaps` in tsconfig
+- `src/graphql/` — Separate yarn workspace for GraphQL codegen
+
+## State Management
+
+Rainbow uses custom store creators built on Zustand, defined in `src/state/internal/`:
+
+### Store Types
+
+#### createRainbowStore
+
+General-purpose store with optional MMKV persistence. Use for client state.
+
+```typescript
+import { createRainbowStore } from '@/state/internal/createRainbowStore';
+
+const useSettingsStore = createRainbowStore(
+  (set) => ({
+    theme: 'dark',
+    setTheme: (theme) => set({ theme }),
+  }),
+  {
+    persist: {
+      name: 'settings',
+      version: 1,
+    },
+  }
+);
+```
+
+#### createQueryStore
+
+Combines data fetching + state in one store. Reactive `$` params auto-refetch when dependencies change. Replaces the React Query + Zustand dual-store pattern. Use for server/async data.
+
+```typescript
+import { createQueryStore } from '@/state/internal/createQueryStore';
+
+const useTokenPriceStore = createQueryStore({
+  queryKey: ({ tokenAddress }) => ['tokenPrice', tokenAddress],
+  queryFn: async ({ tokenAddress }) => {
+    const response = await fetch(`/api/price/${tokenAddress}`);
+    return response.json();
+  },
+});
+```
+
+#### createDerivedStore
+
+Read-only store that composes other stores. Use for computed/aggregated state.
+
+```typescript
+import { createDerivedStore } from '@/state/internal/createDerivedStore';
+
+const useTotalBalance = createDerivedStore(
+  [useWalletStore, usePricesStore],
+  (wallet, prices) => wallet.tokens.reduce(
+    (sum, token) => sum + (prices[token.address] || 0),
+    0
+  )
+);
+```
+
+### Legacy Systems
+
+<Note>
+  These are still in use but being phased out:
+  - **React Query** (`src/react-query/`) — being replaced by `createQueryStore`
+  - **Redux** (`src/redux/`) — only for: charts, contacts, ENS registration, gas, settings
+</Note>
+
+## Linting and Formatting
+
+### ESLint Configuration
+
+Rainbow uses ESLint with custom rules defined in `.eslintrc.js`:
+
+```javascript
+{
+  extends: ['rainbow', 'plugin:yml/standard'],
+  rules: {
+    // Type imports must use inline type annotation
+    '@typescript-eslint/consistent-type-imports': ['error', {
+      prefer: 'type-imports',
+      fixStyle: 'inline-type-imports',
+    }],
+    
+    // No duplicate imports
+    'import/no-duplicates': 'error',
+    
+    // Exhaustive deps for hooks
+    'react-hooks/exhaustive-deps': ['warn', {
+      additionalHooks: '(useDeepCompareEffect|useDeepCompareCallback|...)'
+    }],
+  }
+}
+```
+
+### Restricted Imports
+
+Some imports are restricted to enforce best practices:
+
+```typescript
+// ❌ Don't use StatusBar from react-native
+import { StatusBar } from 'react-native';
+
+// ✅ Use SystemBars from react-native-edge-to-edge
+import { SystemBars } from 'react-native-edge-to-edge';
+
+// ❌ Don't import from @react-navigation/core directly
+import { useNavigation } from '@react-navigation/core';
+
+// ✅ Use @/navigation to ensure customizations are applied
+import { useNavigation } from '@/navigation';
+```
+
+### Pre-commit Hooks
+
+Rainbow uses Husky and lint-staged to enforce quality on commit:
+
+```json
+// package.json
+{
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx,graphql,yml,yaml}": [
+      "prettier --write",
+      "eslint --cache"
+    ]
+  }
+}
+```
+
+Files are automatically formatted and linted when you commit.
+
+## TypeScript Configuration
+
+### Path Aliases
+
+Rainbow uses path aliases for cleaner imports:
+
+```typescript
+// tsconfig.json paths
+{
+  "@/*": ["./src/*"],
+  "@/swaps": ["./src/__swaps__"],
+  "@rainbow-me/config/*": ["./src/config/*"],
+  "@rainbow-me/entities": ["src/entities"],
+  "@rainbow-me/routes": ["src/navigation/routesNames"]
+}
+```
+
+**Usage:**
+```typescript
+import { ChainId } from '@/chains/types';
+import { SwapScreen } from '@/swaps';
+import { config } from '@rainbow-me/config/experimental';
+```
+
+### Strict Mode
+
+TypeScript strict mode is enabled:
+
+```json
+{
+  "compilerOptions": {
+    "strict": true,
+    "target": "esnext",
+    "module": "ESNext"
+  }
+}
+```
+
+## Performance Best Practices
+
+### Avoid Barrel Files
+
+As mentioned above, barrel files hurt performance. Import directly from source files.
+
+### Use Memo Wisely
+
+```typescript
+import { useMemo } from 'react';
+import { use-memo-one } from 'use-memo-one';
+
+// Use useMemo for expensive computations
+const sortedTokens = useMemo(
+  () => tokens.sort((a, b) => b.balance - a.balance),
+  [tokens]
+);
+```
+
+### Lazy Load Heavy Dependencies
+
+```typescript
+// Import heavy libraries lazily
+const processImage = async (imageUri: string) => {
+  const ImageManipulator = await import('expo-image-manipulator');
+  return ImageManipulator.manipulateAsync(imageUri, [...]);
+};
+```
+
+## Verification Commands
+
+Before submitting code, run these verification commands:
+
+```bash
+# Format check
+yarn format:check
+
+# TypeScript type check
+yarn lint:ts
+
+# JavaScript type check (against baseline)
+yarn lint:js-types
+
+# ESLint
+yarn lint:js
+
+# All linting (format + TS + JS)
+yarn lint
+
+# Check for circular dependencies
+yarn check:cycles
+
+# Run tests
+yarn test
+```
+
+<Tip>
+  Run `yarn lint` before every commit to catch issues early.
+</Tip>
+
+## Common Patterns
+
+### Component Structure
+
+```typescript
+import { type ReactNode } from 'react';
+import { View, Text } from 'react-native';
+import { type StyleProp, type ViewStyle } from 'react-native';
+
+interface WalletCardProps {
+  address: string;
+  balance: string;
+  style?: StyleProp<ViewStyle>;
+  children?: ReactNode;
+}
+
+export function WalletCard({ 
+  address, 
+  balance, 
+  style,
+  children 
+}: WalletCardProps) {
+  return (
+    <View style={style}>
+      <Text>{address}</Text>
+      <Text>{balance}</Text>
+      {children}
+    </View>
+  );
+}
+```
+
+### Custom Hooks
+
+```typescript
+import { useEffect, useState } from 'react';
+
+export function useTokenBalance(tokenAddress: string) {
+  const [balance, setBalance] = useState<string>('0');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    
+    async function fetchBalance() {
+      try {
+        setLoading(true);
+        const result = await getBalance(tokenAddress);
+        if (!cancelled) setBalance(result);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    fetchBalance();
+    return () => { cancelled = true; };
+  }, [tokenAddress]);
+
+  return { balance, loading };
+}
+```
+
+## Style Guide Summary
+
+<CardGroup cols={2}>
+  <Card title="TypeScript Only" icon="check">
+    All new files must be `.ts` or `.tsx`
+  </Card>
+  <Card title="No Barrel Exports" icon="ban">
+    Import directly from source files
+  </Card>
+  <Card title="Type-Only Imports" icon="code">
+    Use `import { type ... }` for types
+  </Card>
+  <Card title="Strict Linting" icon="shield-check">
+    Follow ESLint rules strictly
+  </Card>
+</CardGroup>

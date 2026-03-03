@@ -1,0 +1,391 @@
+---
+title: Account Management
+description: Create, manage, and customize accounts within Rainbow Wallet
+---
+
+Rainbow Wallet supports multiple accounts per wallet, each with customizable profiles and automatic ENS integration.
+
+## Account Structure
+
+Each account in Rainbow has:
+
+- **Unique Address**: Ethereum address derived from wallet
+- **Account Label**: Custom name for easy identification
+- **Color**: Visual identifier (color-coded)
+- **Emoji Symbol**: Quick visual reference
+- **ENS Name**: Automatically fetched if registered
+- **Avatar**: ENS avatar or custom image
+
+## Creating New Accounts
+
+### In Existing Wallet
+
+Add accounts to any HD wallet:
+
+<Steps>
+  <Step title="Open Wallet Settings">
+    Navigate to Settings > Wallets and select your wallet
+  </Step>
+  
+  <Step title="Create Account">
+    Tap "Create New Account" to generate the next account in the derivation path
+  </Step>
+  
+  <Step title="Customize Account">
+    Set account name, color, and emoji identifier
+  </Step>
+  
+  <Step title="Account Ready">
+    New account is immediately available for receiving and sending
+  </Step>
+</Steps>
+
+### Implementation
+
+```typescript
+// From src/state/wallets/walletsStore.ts
+createAccountInExistingWallet: async (data: {
+  id: RainbowWallet['id'];
+  name: RainbowWallet['name'];
+  color: RainbowWallet['color'] | null;
+}) => {
+  const wallets = get().wallets;
+  const wallet = wallets[data.id];
+  
+  if (!wallet) return;
+  
+  // Generate new account from seed
+  const newAccount = await generateAccount({
+    walletId: wallet.id,
+    color: data.color,
+    name: data.name,
+  });
+  
+  // Update wallet with new account
+  const updatedWallet = {
+    ...wallet,
+    addresses: [...wallet.addresses, newAccount],
+  };
+  
+  await saveAllWallets({
+    ...wallets,
+    [data.id]: updatedWallet,
+  });
+  
+  // Refresh wallet info to fetch ENS
+  await get().refreshWalletInfo();
+}
+```
+
+## Account Profile Information
+
+Rainbow automatically enriches account profiles:
+
+```typescript
+interface AccountProfileInfo {
+  accountAddress: Address;
+  accountColor: number;        // Color index for UI
+  accountENS?: string;         // ENS name if registered
+  accountImage?: string | null; // ENS avatar or custom
+  accountName?: string;        // Custom label
+  accountSymbol?: string | false; // Emoji identifier
+}
+```
+
+### Fetching Account Info
+
+```typescript
+// From src/state/wallets/walletsStore.ts
+getAccountProfileInfo: (address?: Address) => {
+  const targetAddress = address || get().accountAddress;
+  const { wallets, walletNames } = get();
+  
+  // Find account in wallets
+  let accountInfo = null;
+  for (const wallet of Object.values(wallets)) {
+    const account = wallet.addresses?.find(
+      acc => acc.address.toLowerCase() === targetAddress.toLowerCase()
+    );
+    if (account) {
+      accountInfo = account;
+      break;
+    }
+  }
+  
+  return {
+    accountAddress: targetAddress,
+    accountColor: accountInfo?.color || addressHashedColorIndex(targetAddress),
+    accountENS: walletNames[targetAddress],
+    accountImage: accountInfo?.image,
+    accountName: accountInfo?.label,
+    accountSymbol: accountInfo?.emoji || addressHashedEmoji(targetAddress),
+  };
+}
+```
+
+## Customizing Accounts
+
+### Update Account Details
+
+Users can customize account appearance and metadata:
+
+```typescript
+updateAccountInfo: ({
+  address,
+  walletId,
+  color,
+  emoji,
+  image,
+  label,
+}: {
+  address: Address;
+  walletId: string;
+} & Partial<RainbowAccount>) => {
+  const wallets = get().wallets;
+  const wallet = wallets[walletId];
+  
+  if (!wallet) return;
+  
+  // Find and update account
+  const updatedAddresses = wallet.addresses.map(account => {
+    if (account.address.toLowerCase() === address.toLowerCase()) {
+      return {
+        ...account,
+        ...(color !== undefined && { color }),
+        ...(emoji !== undefined && { emoji }),
+        ...(image !== undefined && { image }),
+        ...(label !== undefined && { label }),
+      };
+    }
+    return account;
+  });
+  
+  // Save updated wallet
+  const updatedWallet = { ...wallet, addresses: updatedAddresses };
+  saveAllWallets({ ...wallets, [walletId]: updatedWallet });
+}
+```
+
+### Available Customizations
+
+<Tabs>
+  <Tab title="Account Name">
+    Set a custom label for easy identification:
+    - "Main Account"
+    - "Trading"
+    - "Cold Storage"
+    - Any custom text
+  </Tab>
+  
+  <Tab title="Color Theme">
+    Choose from predefined colors:
+    - Visual differentiation
+    - Used in UI elements
+    - Helps identify accounts quickly
+  </Tab>
+  
+  <Tab title="Emoji Symbol">
+    Select an emoji as account icon:
+    - Quick visual reference
+    - Displayed in account selector
+    - Fun personalization
+  </Tab>
+  
+  <Tab title="Avatar Image">
+    Use ENS avatar or custom image:
+    - Automatically from ENS profile
+    - Upload custom image
+    - Displayed in account UI
+  </Tab>
+</Tabs>
+
+## ENS Integration
+
+Rainbow automatically fetches and displays ENS names:
+
+### Automatic ENS Resolution
+
+<Steps>
+  <Step title="Account Detection">
+    When account is created or imported, Rainbow checks for ENS reverse record
+  </Step>
+  
+  <Step title="Name Fetching">
+    If ENS name exists, it's fetched and cached:
+    ```typescript
+    const ensName = await fetchReverseRecordWithRetry(address);
+    ```
+  </Step>
+  
+  <Step title="Avatar Fetching">
+    ENS avatar is retrieved if configured:
+    ```typescript
+    const avatar = await fetchENSAvatarWithRetry(ensName);
+    ```
+  </Step>
+  
+  <Step title="Profile Update">
+    Account profile updated with ENS data:
+    - Name displayed instead of address
+    - Avatar shown in UI
+    - Cached for performance
+  </Step>
+</Steps>
+
+### Refresh Wallet Info
+
+Manually refresh ENS data for all accounts:
+
+```typescript
+refreshWalletInfo: async (props?: { 
+  addresses?: string[]; 
+  useCachedENS?: boolean; 
+}) => {
+  const { addresses = [], useCachedENS = true } = props || {};
+  const { wallets } = get();
+  
+  // Get all addresses to refresh
+  const allAddresses = addresses.length > 0 
+    ? addresses 
+    : Object.values(wallets).flatMap(wallet => 
+        wallet.addresses.map(acc => acc.address)
+      );
+  
+  // Fetch ENS names
+  const ensNames = await Promise.all(
+    allAddresses.map(address => 
+      fetchReverseRecordWithRetry(address, { useCachedENS })
+    )
+  );
+  
+  // Update wallet names
+  const walletNames: WalletNames = {};
+  allAddresses.forEach((address, i) => {
+    if (ensNames[i]) {
+      walletNames[address] = ensNames[i];
+    }
+  });
+  
+  set({ walletNames });
+}
+```
+
+<Note>
+  ENS names are cached to improve performance. Use `refreshWalletInfo({ useCachedENS: false })` to force a fresh lookup from the blockchain.
+</Note>
+
+## Account Switching
+
+Switch between accounts in the same wallet or different wallets:
+
+### Within Same Wallet
+- Tap account selector in navigation
+- Choose from accounts in current wallet
+- Assets and balances update instantly
+
+### Between Wallets
+- Open wallet selector
+- Choose different wallet
+- Select account within that wallet
+- Full app state switches to new context
+
+### Implementation Details
+
+```typescript
+setAccountAddress: (address: Address) => {
+  set({ accountAddress: address });
+  
+  // Trigger dependent stores to update
+  useUserAssetsStore.getState().setAddress(address);
+  useNftsStore.getState().setAddress(address);
+}
+```
+
+<Warning>
+  Switching accounts changes the entire app context. Any pending transactions or unsaved state may be lost.
+</Warning>
+
+## Account Security
+
+### Read-Only Detection
+
+```typescript
+getIsReadOnlyWallet: () => {
+  const { selected } = get();
+  return selected?.type === WalletTypes.readOnly;
+}
+```
+
+Read-only accounts:
+- Cannot sign transactions
+- Can view balances and history
+- Useful for monitoring addresses
+
+### Damaged Wallet Detection
+
+```typescript
+getIsDamagedWallet: (walletId?: string) => {
+  const { selected, wallets } = get();
+  const targetWalletId = walletId || selected?.id;
+  
+  if (!targetWalletId) return false;
+  
+  const wallet = wallets[targetWalletId];
+  return wallet?.damaged === true;
+}
+```
+
+Damaged wallets are flagged when:
+- Keychain data is corrupted
+- Private keys are inaccessible
+- Backup restoration fails
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Organize Accounts by Purpose">
+    Create separate accounts for different use cases:
+    - **Main Account**: Daily transactions
+    - **Savings**: Long-term holdings
+    - **DeFi**: Protocol interactions
+    - **NFTs**: Collectibles and art
+    - **Trading**: Active trading
+  </Accordion>
+  
+  <Accordion title="Use Descriptive Names">
+    Clear account names help prevent errors:
+    - Avoid generic names like "Account 1"
+    - Include purpose: "ETH Savings", "NFT Collection"
+    - Use emoji for quick visual identification
+  </Accordion>
+  
+  <Accordion title="Regular ENS Updates">
+    Keep ENS data fresh:
+    - Refresh wallet info monthly
+    - Update after changing ENS settings
+    - Verify ENS names before sending large amounts
+  </Accordion>
+  
+  <Accordion title="Monitor All Accounts">
+    Track activity across all accounts:
+    - Check balances regularly
+    - Review transaction history
+    - Set up notifications for activity
+  </Accordion>
+</AccordionGroup>
+
+## Related Features
+
+<CardGroup cols={2}>
+  <Card title="Wallet Overview" icon="wallet" href="/features/wallet/overview">
+    Learn about wallet types and management
+  </Card>
+  
+  <Card title="Backup & Restore" icon="cloud-arrow-up" href="/features/wallet/backup-restore">
+    Back up accounts to cloud storage
+  </Card>
+  
+  <Card title="Assets Management" icon="coins" href="/features/assets/overview">
+    View assets across all accounts
+  </Card>
+</CardGroup>

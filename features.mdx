@@ -1,0 +1,293 @@
+---
+title: Key Features & Architecture
+description: Understanding Rainbow's architecture, state management, and code organization
+---
+
+## Architecture Overview
+
+Rainbow is built with a modern, scalable architecture that prioritizes type safety, performance, and developer experience.
+
+## State Management
+
+Rainbow uses custom store creators built on top of Zustand, providing a unified approach to state management across the application.
+
+### Store Types
+
+<CardGroup cols={3}>
+  <Card title="Rainbow Store" icon="box">
+    General-purpose store with optional MMKV persistence for client state
+  </Card>
+  <Card title="Query Store" icon="cloud">
+    Combines data fetching + state in one store with reactive parameters
+  </Card>
+  <Card title="Derived Store" icon="arrow-right-arrow-left">
+    Read-only store that composes other stores for computed state
+  </Card>
+</CardGroup>
+
+#### Rainbow Store (Client State)
+
+General-purpose store with optional MMKV persistence. Use for client-side state that needs to persist across app restarts.
+
+```typescript
+import { createRainbowStore } from '@/state/internal/createRainbowStore';
+
+const useSettingsStore = createRainbowStore({
+  // Store definition with optional MMKV persistence
+});
+```
+
+#### Query Store (Server State)
+
+Combines data fetching and state management. Reactive `$` parameters automatically refetch when dependencies change.
+
+```typescript
+import { createQueryStore } from '@/state/internal/createQueryStore';
+
+const useDataStore = createQueryStore({
+  // Replaces React Query + Zustand dual-store pattern
+});
+```
+
+<Info>
+  These in-repo creators are being replaced by the external [`stores`](https://github.com/christianbaroni/stores) package with the same APIs (`createBaseStore`, `createQueryStore`, `createDerivedStore`).
+</Info>
+
+#### Derived Store (Computed State)
+
+Read-only store that composes other stores for aggregated or computed state.
+
+```typescript
+import { createDerivedStore } from '@/state/internal/createDerivedStore';
+
+const useComputedStore = createDerivedStore({
+  // Combines multiple stores
+});
+```
+
+### Legacy State Systems
+
+Some legacy systems are still in use during the migration:
+
+- **React Query** (`src/react-query/`) - Server state caching, being replaced by `createQueryStore`
+- **Redux** (`src/redux/`) - Only used for: charts, contacts, ENS registration, gas, and settings
+
+## Source Code Organization
+
+The codebase is mid-migration toward domain-organized architecture.
+
+### New Structure (Feature-Based)
+
+New code goes in `src/features/` with clear layer separation:
+
+```
+src/features/
+  ├── positions/
+  │   ├── ui/          # React components
+  │   ├── data/        # Data fetching and state
+  │   └── core/        # Business logic
+  └── swaps/
+      ├── ui/
+      ├── data/
+      └── core/
+```
+
+### Legacy Structure (Flat)
+
+Legacy code lives in flat top-level directories:
+
+- `components/` - Shared React components
+- `screens/` - Screen-level components
+- `hooks/` - Custom React hooks
+- `helpers/` - Helper functions
+- `utils/` - Utility functions
+
+### Key Directories
+
+<AccordionGroup>
+  <Accordion title="src/framework/">
+    App-agnostic infrastructure including:
+    - HTTP client
+    - Safe math utilities
+    - UI primitives
+    - Core utilities
+  </Accordion>
+  
+  <Accordion title="src/__swaps__/">
+    Swap feature implementation
+    - Aliased as `@/swaps` in tsconfig
+    - Self-contained feature module
+  </Accordion>
+  
+  <Accordion title="src/graphql/">
+    GraphQL codegen workspace
+    - Separate yarn workspace
+    - Generated types and queries
+  </Accordion>
+  
+  <Accordion title="src/state/">
+    Domain-specific stores
+    - One store per domain
+    - Custom store creators
+  </Accordion>
+</AccordionGroup>
+
+## Code Conventions
+
+Rainbow enforces strict code conventions for maintainability and performance.
+
+### No Barrel Exports
+
+<Warning>
+  Import directly from source files, not `index.ts`. Barrel exports defeat tree-shaking, hide circular dependencies, and trigger cascading module loading.
+</Warning>
+
+```typescript
+// ❌ Bad - barrel export
+import { Component } from '@/components';
+
+// ✅ Good - direct import
+import { Component } from '@/components/Component';
+```
+
+This is ESLint-enforced with a limited allowlist.
+
+### Type-Only Imports
+
+Use the `type` annotation for type-only imports (ESLint-enforced):
+
+```typescript
+import type { User } from '@/types/User';
+import { fetchUser } from '@/api/users';
+```
+
+### TypeScript Over JavaScript
+
+Write all new files in `.ts`/`.tsx`.
+
+- Remaining JS files are checked against an error baseline
+- Run `yarn lint:js-types` to check JavaScript type errors
+- Don't regress the error baseline
+
+## Tech Stack
+
+### Core Technologies
+
+| Technology | Version | Purpose |
+|------------|---------|----------|
+| React Native | 0.79.5 | Mobile app framework |
+| React | 19.0.0 | UI library |
+| TypeScript | 5.9.3 | Type safety |
+| Node.js | 22+ | JavaScript runtime |
+
+### State & Data
+
+- **Zustand** (4.5.5) - State management foundation
+- **@storesjs/stores** (0.8.7) - Custom store creators
+- **@tanstack/react-query** (4.2.1) - Server state (legacy)
+- **React Redux** (7.2.1) - Redux integration (legacy)
+
+### Blockchain
+
+- **viem** (2.38.0) - Ethereum interactions
+- **ethers.js** (5.8.0) - Ethereum library
+- **@rainbow-me/swaps** - Swap functionality
+- **@walletconnect** - WalletConnect integration
+
+### UI & Animation
+
+- **@shopify/react-native-skia** - Canvas rendering
+- **react-native-reanimated** (3.19.4) - Animations
+- **@shopify/flash-list** (1.8.2) - Performant lists
+- **expo** (53.0.20) - Expo modules
+
+### Navigation
+
+- **@react-navigation/stack** - Stack navigation
+- **@react-navigation/material-top-tabs** - Tab navigation
+
+## Verification Commands
+
+Rainbow provides comprehensive verification tools:
+
+```bash
+# Type check TypeScript
+yarn lint:ts
+
+# Type check JavaScript against baseline
+yarn lint:js-types
+
+# ESLint
+yarn lint:js
+
+# All linting (format + TS + JS)
+yarn lint
+
+# Run tests
+yarn test
+
+# Run specific test
+yarn jest path/to/test
+
+# Check for circular dependencies
+yarn check:cycles
+```
+
+## Performance Features
+
+<CardGroup cols={2}>
+  <Card title="Flash List" icon="bolt">
+    High-performance lists with @shopify/flash-list
+  </Card>
+  <Card title="Skia Rendering" icon="paintbrush">
+    Native rendering with React Native Skia
+  </Card>
+  <Card title="Reanimated" icon="wand-magic-sparkles">
+    60fps animations on the native thread
+  </Card>
+  <Card title="MMKV Storage" icon="database">
+    Fast, synchronous storage with react-native-mmkv
+  </Card>
+</CardGroup>
+
+## Testing
+
+Rainbow uses multiple testing strategies:
+
+### Unit Testing
+
+- **Jest** for unit tests
+- Run with `yarn test`
+- Located throughout the codebase
+
+### E2E Testing
+
+- **Maestro** for end-to-end tests
+- iOS and Android support
+- Located in `e2e/` directory
+- See [E2E Testing Guide](/development/debugging#e2e-testing)
+
+### Type Coverage
+
+Rainbow maintains 99%+ TypeScript coverage:
+
+```bash
+yarn ts-coverage
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Setup Guide" icon="screwdriver-wrench" href="/setup/prerequisites">
+    Get your development environment ready
+  </Card>
+  <Card title="Running the App" icon="play" href="/development/running">
+    Learn how to run Rainbow locally
+  </Card>
+  <Card title="Building" icon="hammer" href="/development/building">
+    Build for production
+  </Card>
+  <Card title="Debugging" icon="bug" href="/development/debugging">
+    Debug and troubleshoot issues
+  </Card>
+</CardGroup>

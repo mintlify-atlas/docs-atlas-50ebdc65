@@ -1,0 +1,275 @@
+---
+title: 'DeFi Features Overview'
+description: 'Track DeFi positions, perpetuals trading, and prediction markets'
+---
+
+Rainbow Wallet provides comprehensive DeFi functionality, including position tracking across protocols, perpetuals trading on Hyperliquid, and prediction markets on Polymarket.
+
+## Features
+
+<CardGroup cols={2}>
+  <Card title="Position Tracking" icon="chart-line" href="/features/defi/positions">
+    Track deposits, pools, stakes, borrows, and rewards across DeFi protocols
+  </Card>
+  
+  <Card title="Perpetuals Trading" icon="arrow-trend-up" href="/features/defi/perps">
+    Trade perpetual futures on Hyperliquid with up to 50x leverage
+  </Card>
+  
+  <Card title="Prediction Markets" icon="crystal-ball" href="/features/defi/predictions">
+    Bet on real-world events using Polymarket's prediction markets
+  </Card>
+  
+  <Card title="Portfolio Analytics" icon="chart-pie">
+    View aggregated DeFi portfolio value and performance metrics
+  </Card>
+</CardGroup>
+
+## Position Tracking
+
+Rainbow automatically discovers and tracks your DeFi positions across multiple protocols:
+
+### Supported Protocols
+
+- **Uniswap**: Liquidity pools and concentrated liquidity positions
+- **Aave**: Lending, borrowing, and collateral positions  
+- **Compound**: Supply and borrow positions
+- **Curve**: Stablecoin pools and gauges
+- **Yearn Finance**: Vault deposits
+- **Lido**: Staked ETH positions
+- **Rocket Pool**: rETH staking
+- And many more DeFi protocols
+
+### Position Types
+
+```typescript src/features/positions/types/index.ts
+type RainbowPosition = {
+  deposits: RainbowDeposit[];   // Deposited assets
+  pools: RainbowPool[];         // LP positions
+  stakes: RainbowStake[];       // Staked assets
+  borrows: RainbowBorrow[];     // Borrowed funds
+  rewards: RainbowReward[];     // Claimable rewards
+};
+```
+
+## Perpetuals Trading
+
+Trade perpetual futures on Hyperliquid directly from Rainbow:
+
+### Key Features
+
+- **50+ markets**: Trade BTC, ETH, SOL, and altcoin perps
+- **Up to 50x leverage**: Amplify trading positions
+- **Isolated margin**: Risk per position
+- **Trigger orders**: Take profit and stop loss
+- **Real-time data**: Live prices, funding rates, and positions
+
+### Trading Flow
+
+<Steps>
+  <Step title="Deposit USDC">
+    Transfer USDC to your Hyperliquid account.
+  </Step>
+  
+  <Step title="Select Market">
+    Browse available perpetual markets and select one to trade.
+  </Step>
+  
+  <Step title="Configure Position">
+    Set position size, leverage, and side (long/short).
+  </Step>
+  
+  <Step title="Add Trigger Orders (Optional)">
+    Set take profit and stop loss orders.
+  </Step>
+  
+  <Step title="Execute Trade">
+    Submit the trade to Hyperliquid's order book.
+  </Step>
+</Steps>
+
+## Prediction Markets
+
+Bet on real-world outcomes with Polymarket:
+
+### Market Types
+
+- **Politics**: Elections, policy outcomes
+- **Sports**: Game outcomes, player props
+- **Crypto**: Token launches, protocol events  
+- **Culture**: Entertainment, awards shows
+- **Business**: Company performance, M&A
+
+### Trading Workflow
+
+<Steps>
+  <Step title="Deposit USDC">
+    Fund your Polymarket proxy wallet with USDC on Polygon.
+  </Step>
+  
+  <Step title="Browse Events">
+    Explore prediction markets by category or search.
+  </Step>
+  
+  <Step title="Select Outcome">
+    Choose which outcome to bet on (Yes/No or multiple choice).
+  </Step>
+  
+  <Step title="Place Bet">
+    Enter bet amount and review pricing before executing.
+  </Step>
+  
+  <Step title="Manage Position">
+    Sell shares early or wait for market resolution.
+  </Step>
+</Steps>
+
+## Unified Portfolio View
+
+All DeFi positions are aggregated in your wallet:
+
+```typescript src/features/positions/stores/positionsStore.ts
+type RainbowPositions = {
+  positions: Record<string, RainbowPosition>;
+  totals: {
+    total: { amount: string; display: string };
+    totalLocked: { amount: string; display: string };
+    totalRewards: { amount: string; display: string };
+  };
+};
+```
+
+### Portfolio Totals
+
+- **Total value**: Sum of all DeFi positions
+- **Locked value**: Assets locked in protocols
+- **Rewards**: Claimable rewards across protocols
+- **Available**: Unlocked, withdrawable funds
+
+<Info>
+The wallet balance shown in Rainbow subtracts locked positions to show only available funds: `balance = total - locked`.
+</Info>
+
+## Position Discovery
+
+Rainbow automatically discovers positions:
+
+```typescript src/features/positions/stores/positionsStore.ts
+const usePositionsStore = createQueryStore<
+  ListPositionsResponse,
+  PositionsParams,
+  PositionsState,
+  RainbowPositions
+>({
+  fetcher: fetchPositions,
+  transform: transformPositions,
+  params: {
+    address: $ => $(userAssetsStoreManager).address,
+    currency: $ => $(userAssetsStoreManager).currency,
+    chainIds: $ => $(useBackendNetworksStore, s =>
+      s.getSupportedPositionsChainIds()
+    ),
+  },
+  staleTime: time.minutes(10),
+});
+```
+
+The backend:
+1. Monitors your address across supported chains
+2. Detects protocol interactions
+3. Fetches position details from protocol subgraphs
+4. Calculates current values and rewards
+5. Returns normalized position data
+
+## Real-Time Updates
+
+### Positions
+
+Position data refreshes:
+- Every 10 minutes (stale time)
+- On wallet switch
+- After transactions
+- Manual pull-to-refresh
+
+### Perps
+
+Perpetual positions update:
+- Real-time price feeds
+- Funding rate updates every 8 hours
+- Position P&L recalculated on price changes
+- Order book updates via WebSocket
+
+### Predictions
+
+Prediction market data:
+- Market price updates every 30 seconds
+- Position size updates after trades
+- Event resolution monitoring
+- Live sports scores (for sports markets)
+
+## Performance Analytics
+
+Track DeFi performance over time:
+
+```typescript src/features/positions/stores/positionsStore.ts
+analytics.identify({
+  positionsAmount,
+  positionsUSDValue: Number(positions.totals.total.amount),
+  positionsAssetsAmount,
+  positionsDappsAmount: Object.keys(positions.positions).length,
+  positionsRewardsAmount,
+  positionsRewardsUSDValue: Number(positions.totals.totalRewards.amount),
+});
+```
+
+Tracked metrics:
+- Total positions count
+- Total USD value
+- Number of assets
+- Number of protocols used
+- Rewards earned
+- Rewards USD value
+
+## Chain Support
+
+DeFi features span multiple chains:
+
+### Position Tracking
+- Ethereum mainnet
+- Arbitrum
+- Optimism
+- Polygon
+- Base
+- And other supported networks
+
+### Perpetuals
+- Hyperliquid (Arbitrum)
+
+### Predictions
+- Polymarket (Polygon)
+
+<Note>
+Different features are available on different networks. Check the specific feature documentation for chain requirements.
+</Note>
+
+## Risk Management
+
+### Position Tracking
+- Health factor monitoring (for lending protocols)
+- Liquidation price tracking
+- Impermanent loss calculation
+
+### Perpetuals
+- Liquidation price calculation
+- Margin ratio monitoring  
+- Position size limits
+- Leverage warnings
+
+### Predictions
+- Maximum position size
+- Liquidity availability checks
+- Market expiration dates
+
+<Warning>
+DeFi and leveraged trading involve significant risks. Only trade with funds you can afford to lose.
+</Warning>

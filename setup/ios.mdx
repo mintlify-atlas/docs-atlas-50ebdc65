@@ -1,0 +1,313 @@
+---
+title: iOS Setup
+description: Configure iOS development environment for Rainbow Wallet
+---
+
+<Note>
+  iOS development requires macOS. If you're on Windows or Linux, skip to [Android Setup](/setup/android).
+</Note>
+
+## Prerequisites
+
+Before setting up iOS, ensure you have:
+
+- ✅ [Prerequisites](/setup/prerequisites) installed (Node.js, Ruby)
+- ✅ [Dependencies](/setup/installation) installed (`yarn install && yarn setup`)
+- 💻 macOS (iOS development is only possible on macOS)
+
+## Installation Steps
+
+<Steps>
+  <Step title="Install Xcode">
+    Download and install Xcode from the Mac App Store:
+    
+    1. Open the **Mac App Store**
+    2. Search for **"Xcode"**
+    3. Click **Install** (this is a large download, ~10-15 GB)
+    4. Wait for installation to complete
+    
+    After installation, open Xcode at least once to:
+    - Accept the license agreement
+    - Install additional components
+    - Set up command line tools
+    
+    <Info>
+      You can also install Xcode Command Line Tools separately:
+      ```bash
+      xcode-select --install
+      ```
+    </Info>
+  </Step>
+  
+  <Step title="Install Watchman">
+    Watchman is a file watching service used by React Native's Metro bundler:
+    
+    ```bash
+    brew install watchman
+    ```
+    
+    Verify installation:
+    
+    ```bash
+    watchman --version
+    ```
+  </Step>
+  
+  <Step title="Install Bundler">
+    Bundler manages Ruby dependencies (Fastlane, CocoaPods):
+    
+    ```bash
+    yarn install-bundle
+    ```
+    
+    This runs `bundle install` using the `Gemfile`.
+  </Step>
+  
+  <Step title="Install CocoaPods Dependencies">
+    Install iOS native dependencies with CocoaPods:
+    
+    <CodeGroup>
+    
+    ```bash Full Install (Recommended)
+    yarn install-pods
+    ```
+    
+    ```bash Fast Install
+    # Skips pod repo update (faster, but may have stale dependencies)
+    yarn install-pods-fast
+    ```
+    
+    ```bash Without Flipper
+    # Lighter build without Flipper debugger
+    yarn install-pods-no-flipper
+    ```
+    
+    </CodeGroup>
+    
+    <Warning>
+      The first `install-pods` can take 10-30 minutes depending on your Mac's speed and internet connection. Subsequent installs are much faster.
+    </Warning>
+  </Step>
+</Steps>
+
+## What Gets Installed
+
+The CocoaPods installation installs numerous iOS dependencies:
+
+- **Firebase** - Analytics, messaging, and remote config
+- **React Native core** - RN iOS framework
+- **Native modules** - All React Native modules (camera, storage, etc.)
+- **Reanimated** - Animation library native code
+- **Skia** - Graphics rendering engine
+- **Various pods** - Networking, crypto, Bluetooth, and more
+
+## Verify iOS Setup
+
+<Steps>
+  <Step title="Check Xcode installation">
+    ```bash
+    xcodebuild -version
+    ```
+    
+    Should output Xcode version (15.0+).
+  </Step>
+  
+  <Step title="Verify Pods installed">
+    ```bash
+    ls -la ios/Pods/
+    ```
+    
+    You should see numerous pod directories.
+  </Step>
+  
+  <Step title="Open workspace in Xcode">
+    ```bash
+    open ios/Rainbow.xcworkspace
+    ```
+    
+    <Warning>
+      Always open `Rainbow.xcworkspace`, **not** `Rainbow.xcodeproj`. The workspace includes CocoaPods dependencies.
+    </Warning>
+  </Step>
+</Steps>
+
+## CocoaPods Configuration
+
+Rainbow's `ios/Podfile` has specific configurations:
+
+### Platform Version
+
+```ruby
+platform :ios, '15.1'
+```
+
+Minimum iOS version is 15.1.
+
+### Modular Headers
+
+Firebase pods use modular headers:
+
+```ruby
+pod 'Firebase', :modular_headers => true
+pod 'FirebaseCore', :modular_headers => true
+pod 'FirebaseRemoteConfig', :modular_headers => true
+```
+
+### Expo Autolinking
+
+Expo modules are auto-linked:
+
+```ruby
+require File.join(File.dirname(`node --print "require.resolve('expo/package.json')"`), "scripts/autolinking")
+```
+
+### VisionCamera Configuration
+
+Location API is disabled:
+
+```ruby
+$VCEnableLocation = false
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Pod install fails with Ruby version error">
+    Make sure you're using the correct Ruby version (3.4.8):
+    
+    ```bash
+    ruby --version
+    which ruby  # Should NOT be /usr/bin/ruby
+    ```
+    
+    Use rbenv or rvm to install Ruby 3.4.8 (see [Prerequisites](/setup/prerequisites)).
+  </Accordion>
+  
+  <Accordion title="CocoaPods: Unable to find a specification">
+    Update your CocoaPods repo:
+    
+    ```bash
+    cd ios
+    bundle exec pod repo update
+    bundle exec pod install
+    ```
+  </Accordion>
+  
+  <Accordion title="Xcode build fails with 'Command PhaseScriptExecution failed'">
+    This often means Node.js isn't in Xcode's PATH. The build scripts need `node`.
+    
+    1. Ensure you ran `nvm use` before opening Xcode
+    2. Close Xcode completely
+    3. Open Xcode from terminal:
+       ```bash
+       open ios/Rainbow.xcworkspace
+       ```
+    
+    Alternatively, add nvm to your shell profile so it's always available.
+  </Accordion>
+  
+  <Accordion title="'Unable to boot simulator' error">
+    The iOS Simulator might be corrupted. Try:
+    
+    1. Quit Xcode and Simulator
+    2. Reset simulators:
+       ```bash
+       xcrun simctl erase all
+       ```
+    3. Restart Xcode
+  </Accordion>
+  
+  <Accordion title="Pods are out of date">
+    If you get outdated pod warnings:
+    
+    ```bash
+    cd ios
+    bundle exec pod install --repo-update
+    cd ..
+    ```
+  </Accordion>
+  
+  <Accordion title="Flipper build issues">
+    Flipper can cause build issues. Try installing without Flipper:
+    
+    ```bash
+    yarn install-pods-no-flipper
+    ```
+  </Accordion>
+  
+  <Accordion title="Clean iOS build">
+    If you encounter persistent build issues, clean everything:
+    
+    ```bash
+    # Clean iOS builds and pods
+    yarn clean:ios
+    
+    # Reinstall pods
+    yarn install-pods
+    ```
+    
+    In Xcode:
+    1. **Product → Clean Build Folder** (Cmd+Shift+K)
+    2. Close Xcode
+    3. Delete derived data:
+       ```bash
+       rm -rf ~/Library/Developer/Xcode/DerivedData
+       ```
+    4. Reopen Xcode and rebuild
+  </Accordion>
+</AccordionGroup>
+
+## Gemfile Dependencies
+
+The `Gemfile` specifies:
+
+```ruby
+ruby '>= 2.7.0'
+
+gem "fastlane"
+gem 'cocoapods', '>= 1.13', '!= 1.15.0', '!= 1.15.1'
+gem 'activesupport', '>= 6.1.7.5', '<7.1.0'
+gem 'bigdecimal'
+```
+
+- **fastlane** - iOS build automation
+- **cocoapods** - Dependency manager (excludes problematic versions 1.15.0/1.15.1)
+- **activesupport** - Rails utilities
+- **bigdecimal** - Required for Ruby 3.4+
+
+## Alternative Installation Methods
+
+### JavaScript Core (JSC) Instead of Hermes
+
+By default, Rainbow uses Hermes. To use JSC:
+
+```bash
+yarn install-pods-fast-jsc
+```
+
+This sets `USE_HERMES=NO` during pod install.
+
+### Skip Flipper
+
+For faster builds without the Flipper debugger:
+
+```bash
+yarn install-pods-no-flipper
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Android Setup" icon="android" href="/setup/android">
+    Set up Android development (optional)
+  </Card>
+  <Card title="Running the App" icon="play" href="/development/running">
+    Build and run Rainbow on iOS
+  </Card>
+</CardGroup>
+
+## Additional Resources
+
+- [React Native iOS Setup](https://reactnative.dev/docs/environment-setup?platform=ios)
+- [CocoaPods Getting Started](https://guides.cocoapods.org/using/getting-started.html)
+- [Xcode Documentation](https://developer.apple.com/documentation/xcode)

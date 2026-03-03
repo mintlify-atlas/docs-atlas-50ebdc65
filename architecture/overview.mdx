@@ -1,0 +1,186 @@
+---
+title: Architecture Overview
+description: High-level overview of Rainbow Wallet's architecture and design principles
+---
+
+Rainbow is a React Native crypto wallet app for iOS and Android. The architecture emphasizes type safety, domain organization, and custom state management patterns.
+
+## Core Technologies
+
+- **React Native** - Cross-platform mobile framework
+- **TypeScript** - Primary language for type safety
+- **React Navigation** - Navigation framework
+- **Zustand** - Foundation for custom store creators
+- **MMKV** - High-performance local storage
+- **ethers/viem** - Blockchain interactions
+
+## Architectural Principles
+
+### Type Safety First
+
+All new code is written in TypeScript. Remaining JavaScript files are checked against an error baseline to prevent regressions.
+
+```bash
+# Type checking
+yarn lint:ts          # TypeScript files
+yarn lint:js-types    # JavaScript files against baseline
+yarn lint             # All linting (format + TS + JS)
+```
+
+### Domain-Organized Structure
+
+The codebase is mid-migration toward domain-organized architecture:
+
+- **New code** → `src/features/` with `ui/data/core` layer separation
+- **Legacy code** → Flat top-level directories (`components/`, `screens/`, `hooks/`)
+
+### No Barrel Exports
+
+Barrel exports (index.ts re-exports) are discouraged because they:
+- Defeat tree-shaking
+- Hide circular dependencies
+- Trigger cascading module loading
+
+```typescript
+// ❌ Avoid
+import { MyComponent } from '@/components';
+
+// ✅ Prefer
+import { MyComponent } from '@/components/MyComponent';
+```
+
+This is enforced by ESLint with a limited allowlist.
+
+### Type-Only Imports
+
+Use the `type` annotation for type-only imports:
+
+```typescript
+import { type MyType } from './types';
+import { myFunction } from './utils';
+```
+
+## Architecture Layers
+
+<CardGroup cols={2}>
+  <Card title="State Management" icon="database" href="/architecture/state/overview">
+    Custom Zustand-based stores for client and server state
+  </Card>
+  <Card title="Navigation" icon="map" href="/architecture/navigation">
+    React Navigation with custom sheet coordination
+  </Card>
+  <Card title="Storage" icon="hard-drive" href="/architecture/storage">
+    MMKV-based persistent storage system
+  </Card>
+  <Card title="Analytics" icon="chart-line" href="/architecture/analytics">
+    Rudderstack-based event tracking
+  </Card>
+</CardGroup>
+
+## Source Layout
+
+```
+src/
+├── features/          # New domain-organized code
+│   ├── perps/         # Perpetuals trading
+│   ├── polymarket/    # Prediction markets
+│   ├── positions/     # Portfolio positions
+│   └── rnbw-rewards/  # Rewards system
+├── state/             # Zustand stores (domain-based)
+├── framework/         # App-agnostic infrastructure
+├── __swaps__/         # Swap feature (aliased @/swaps)
+├── components/        # Legacy UI components
+├── screens/           # Legacy screen components
+├── hooks/             # Shared React hooks
+├── helpers/           # Utility functions
+└── utils/             # General utilities
+```
+
+### Key Directories
+
+<Accordion title="src/features/ - Domain Features">
+  New features organized by domain with `ui/`, `data/`, and `core/` layers.
+  
+  Each feature contains:
+  - `components/` or `ui/` - React components
+  - `stores/` or `data/` - State management
+  - `hooks/` - Feature-specific hooks
+  - `screens/` - Screen components
+  - `utils/` - Feature utilities
+</Accordion>
+
+<Accordion title="src/framework/ - Infrastructure">
+  App-agnostic infrastructure including:
+  - HTTP clients
+  - Safe math utilities
+  - UI primitives
+  - Core utilities
+</Accordion>
+
+<Accordion title="src/state/ - State Stores">
+  Zustand stores organized by domain:
+  - `wallets/` - Wallet management
+  - `swaps/` - Swap state
+  - `nfts/` - NFT collections
+  - `navigation/` - Navigation state
+  - `internal/` - Store creators
+</Accordion>
+
+<Accordion title="src/__swaps__/ - Swap Feature">
+  Swap functionality aliased as `@/swaps` in tsconfig. Contains swap-specific logic, UI, and state.
+</Accordion>
+
+<Accordion title="src/graphql/ - GraphQL Workspace">
+  Separate yarn workspace for GraphQL code generation.
+</Accordion>
+
+## Legacy Systems
+
+Several legacy state management systems remain in use:
+
+<Warning>
+  These systems are being phased out. New features should use `createRainbowStore` or `createQueryStore`.
+</Warning>
+
+### React Query
+
+Located in `src/react-query/` - used for server state caching. Being replaced by `createQueryStore`.
+
+### Redux
+
+Located in `src/redux/` - only used for:
+- Charts
+- Contacts
+- ENS registration
+- Gas management
+- Settings
+
+## Testing
+
+```bash
+yarn test                    # Run all tests
+yarn jest path/to/test       # Run single test
+yarn check:cycles            # Check for circular dependencies
+```
+
+## Migration to External Package
+
+The in-repo store creators (`createRainbowStore`, `createQueryStore`, `createDerivedStore`) are being replaced by the external [`stores`](https://github.com/christianbaroni/stores) package.
+
+The APIs are identical:
+- `createRainbowStore` → `createBaseStore`
+- `createQueryStore` → `createQueryStore`
+- `createDerivedStore` → `createDerivedStore`
+
+Migration is mostly an import swap.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Project Structure" icon="folder-tree" href="/architecture/project-structure">
+    Detailed directory structure and organization
+  </Card>
+  <Card title="State Management" icon="database" href="/architecture/state/overview">
+    Learn about Rainbow's state management system
+  </Card>
+</CardGroup>

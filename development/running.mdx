@@ -1,0 +1,498 @@
+---
+title: Running the App
+description: Build and run Rainbow Wallet on iOS and Android simulators or devices
+---
+
+This guide covers how to run Rainbow in development mode on iOS and Android.
+
+## Prerequisites
+
+Before running the app, ensure you've completed:
+
+- ✅ [Prerequisites](/setup/prerequisites) - Node.js, Ruby, and tools installed
+- ✅ [Installation](/setup/installation) - Dependencies installed with `yarn install && yarn setup`
+- ✅ [iOS Setup](/setup/ios) or [Android Setup](/setup/android) - Platform-specific configuration
+
+## Development Workflow
+
+The typical development workflow involves two steps:
+
+1. **Start Metro Bundler** - JavaScript bundler (like webpack for React Native)
+2. **Run on Platform** - Build and launch on iOS/Android
+
+## Start Metro Bundler
+
+In one terminal, start the Metro bundler:
+
+<CodeGroup>
+
+```bash Standard Start
+yarn start
+```
+
+```bash With Client Logs
+# Shows console.log output in terminal
+yarn start:client-logs
+```
+
+```bash Clean Start
+# Clears Metro cache and watchman
+yarn start:clean
+```
+
+</CodeGroup>
+
+Metro will start and display:
+
+```
+               ######                ######               
+             ###     ####        ####     ###             
+            ##          ###    ###          ##            
+            ##             ####             ##            
+            ##             ####             ##            
+            ##           ##    ##           ##            
+            ##         ###      ###         ##            
+             ##  ####                ####  ##             
+          ######                        ######            
+      ###     ##       ###      ###       ##     ###      
+   ###         ## ######## #### ######## ##         ###   
+  ##           ####                    ####           ##  
+ ##             ###                    ###             ## 
+  ##           ####                    ####           ##  
+   ###         ## ######## #### ######## ##         ###   
+      ###     ##       ###      ###       ##     ###      
+          ######                        ######            
+             ##  ####                ####  ##             
+            ##         ###      ###         ##            
+            ##           ##    ##           ##            
+            ##             ####             ##            
+            ##             ####             ##            
+            ##          ###    ###          ##            
+             ###     ####        ####     ###             
+               ######                ######               
+
+Welcome to Metro!
+```
+
+<Info>
+  Keep Metro running in this terminal while developing. It watches for file changes and provides hot reload.
+</Info>
+
+## Running on iOS
+
+<Tabs>
+  <Tab title="Command Line (Recommended)">
+    Run from terminal:
+    
+    ```bash
+    yarn ios
+    ```
+    
+    This:
+    1. Builds the app with Xcode
+    2. Launches iOS Simulator
+    3. Installs and runs Rainbow
+    
+    The default simulator is **iPhone 16 Pro**. To use a different device:
+    
+    ```bash
+    # List available simulators
+    xcrun simctl list devices
+    
+    # Run on specific device
+    react-native run-ios --simulator="iPhone 15 Pro Max"
+    ```
+  </Tab>
+  
+  <Tab title="Xcode">
+    Run from Xcode for more control:
+    
+    <Steps>
+      <Step title="Open workspace">
+        ```bash
+        open ios/Rainbow.xcworkspace
+        ```
+        
+        <Warning>
+          Always open `Rainbow.xcworkspace`, **not** `Rainbow.xcodeproj`.
+        </Warning>
+      </Step>
+      
+      <Step title="Select scheme and device">
+        In Xcode:
+        1. Select **Rainbow** scheme (top toolbar)
+        2. Select target device or simulator (next to scheme)
+      </Step>
+      
+      <Step title="Build and run">
+        Press **Cmd+R** or click the **Play** button.
+      </Step>
+    </Steps>
+    
+    <Info>
+      Using Xcode allows you to:
+      - Debug native code
+      - View native logs
+      - Use Xcode's debugger
+      - Configure build settings
+    </Info>
+  </Tab>
+  
+  <Tab title="Physical Device">
+    To run on a physical iOS device:
+    
+    <Steps>
+      <Step title="Connect device">
+        Connect your iPhone/iPad via USB.
+      </Step>
+      
+      <Step title="Trust computer">
+        On your device, tap **Trust** when prompted.
+      </Step>
+      
+      <Step title="Configure signing">
+        In Xcode:
+        1. Open `ios/Rainbow.xcworkspace`
+        2. Select **Rainbow** target
+        3. Go to **Signing & Capabilities**
+        4. Select your **Team** (Apple Developer account)
+        5. Xcode will create a provisioning profile
+      </Step>
+      
+      <Step title="Select device and run">
+        1. Select your physical device from the device list
+        2. Press **Cmd+R**
+      </Step>
+    </Steps>
+    
+    <Note>
+      You need an Apple Developer account (free or paid) to run on physical devices.
+    </Note>
+  </Tab>
+</Tabs>
+
+## Running on Android
+
+<Tabs>
+  <Tab title="Command Line (Recommended)">
+    Run from terminal:
+    
+    ```bash
+    yarn android
+    ```
+    
+    This:
+    1. Builds the app with Gradle
+    2. Launches emulator (if not already running)
+    3. Installs and runs Rainbow
+    
+    <Note>
+      Make sure you have an emulator created or a physical device connected before running.
+    </Note>
+  </Tab>
+  
+  <Tab title="Android Studio">
+    Run from Android Studio:
+    
+    <Steps>
+      <Step title="Open project">
+        Launch Android Studio from terminal:
+        
+        ```bash
+        # macOS
+        open -a "Android Studio"
+        ```
+        
+        Then open the `android/` folder.
+      </Step>
+      
+      <Step title="Wait for Gradle sync">
+        Let Gradle sync complete (can take a few minutes on first run).
+      </Step>
+      
+      <Step title="Select device">
+        In Android Studio toolbar:
+        1. Select target device from dropdown
+        2. Or click **Device Manager** to start an emulator
+      </Step>
+      
+      <Step title="Run app">
+        Click the **Run** button (green play icon) or press **Shift+F10**.
+      </Step>
+    </Steps>
+  </Tab>
+  
+  <Tab title="Physical Device">
+    To run on a physical Android device:
+    
+    <Steps>
+      <Step title="Enable Developer Options">
+        On your Android device:
+        1. Go to **Settings → About Phone**
+        2. Tap **Build Number** 7 times
+        3. Return to **Settings**
+        4. Open **Developer Options**
+      </Step>
+      
+      <Step title="Enable USB Debugging">
+        In Developer Options:
+        1. Enable **USB Debugging**
+        2. Connect device via USB
+        3. Tap **Allow** when prompted on device
+      </Step>
+      
+      <Step title="Verify connection">
+        ```bash
+        adb devices
+        ```
+        
+        Your device should be listed.
+      </Step>
+      
+      <Step title="Reverse ports">
+        Allow device to connect to Metro bundler:
+        
+        ```bash
+        yarn android-reverse-ports
+        ```
+        
+        This runs: `adb reverse tcp:8081 tcp:8081`
+      </Step>
+      
+      <Step title="Run app">
+        ```bash
+        yarn android
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
+
+## Development Features
+
+### Hot Reload
+
+When Metro is running, changes to JavaScript/TypeScript files automatically reload:
+
+- **Fast Refresh**: Preserves component state while reloading
+- **Automatic**: Saves the file, app updates
+
+<Info>
+  Fast Refresh works for most React components. Some changes (like adding new native modules) require a full rebuild.
+</Info>
+
+### Developer Menu
+
+Access the developer menu:
+
+- **iOS Simulator**: Press **Cmd+D**
+- **Android Emulator**: Press **Cmd+M** (macOS) or **Ctrl+M** (Windows/Linux)
+- **Physical Device**: Shake the device
+
+Options include:
+- Reload
+- Debug
+- Enable/disable Fast Refresh
+- Toggle Element Inspector
+- Show Performance Monitor
+
+### Remote Debugging
+
+#### React DevTools
+
+Install standalone React DevTools:
+
+```bash
+npm install -g react-devtools
+react-devtools
+```
+
+Then open the developer menu and enable **Debug**.
+
+#### Chrome DevTools (Legacy)
+
+In developer menu, select **Debug** to open Chrome DevTools.
+
+<Warning>
+  Chrome DevTools debugging is deprecated in newer React Native versions. Use React DevTools or Flipper instead.
+</Warning>
+
+#### Flipper
+
+Flipper is a debugging platform for mobile apps:
+
+1. Download Flipper: [https://fbflipper.com/](https://fbflipper.com/)
+2. Build app with Flipper enabled (default)
+3. Open Flipper while app is running
+
+Features:
+- Network inspector
+- React DevTools
+- Logs viewer
+- Layout inspector
+
+### Element Inspector
+
+Inspect UI elements:
+
+1. Open developer menu
+2. Select **Toggle Element Inspector**
+3. Tap elements to see details (styles, props, etc.)
+
+## Environment-Specific Builds
+
+### Development Mode
+
+Default mode when running `yarn ios` or `yarn android`:
+
+- Hot reload enabled
+- Developer menu accessible
+- No optimizations
+- Larger bundle size
+
+### Release Mode
+
+Run in release mode for performance testing:
+
+<CodeGroup>
+
+```bash iOS Release
+yarn ios --mode Release
+```
+
+```bash Android Release
+yarn android --mode Release
+```
+
+</CodeGroup>
+
+Release mode:
+- ✅ Full optimizations
+- ✅ Smaller bundle size
+- ✅ Production-like performance
+- ❌ No hot reload
+- ❌ No developer menu
+
+<Info>
+  Use release mode when testing performance or E2E tests. Set `IS_TESTING=true` in `.env` for E2E tests.
+</Info>
+
+## Multiple Devices
+
+### Run on All Android Devices
+
+Run on all connected Android devices:
+
+```bash
+# Reverse ports on all devices
+yarn android-reverse-ports-all
+
+# Install APK on all devices
+yarn android-all:apk
+```
+
+### Switch Between Devices
+
+**iOS**: Select different simulator in Xcode or use `--simulator` flag.
+
+**Android**: If multiple devices are connected, specify device:
+
+```bash
+# List devices
+adb devices
+
+# Run on specific device
+adb -s <device_id> install app.apk
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Metro bundler fails to start">
+    Clear watchman and Metro cache:
+    
+    ```bash
+    yarn clean:packager
+    yarn start --reset-cache
+    ```
+  </Accordion>
+  
+  <Accordion title="iOS build fails with 'Command PhaseScriptExecution failed'">
+    Node is not in Xcode's PATH:
+    
+    1. Close Xcode
+    2. Run `nvm use` in terminal
+    3. Open Xcode from terminal: `open ios/Rainbow.xcworkspace`
+  </Accordion>
+  
+  <Accordion title="Android build fails with 'Cannot run program node'">
+    Android Studio doesn't have `node` in PATH:
+    
+    1. Close Android Studio
+    2. Launch from terminal: `open -a "Android Studio"`
+    3. Reopen the `android/` folder
+  </Accordion>
+  
+  <Accordion title="App crashes immediately on launch">
+    Check Metro bundler is running:
+    
+    ```bash
+    yarn start
+    ```
+    
+    View logs:
+    - **iOS**: Xcode console or `react-native log-ios`
+    - **Android**: Android Studio logcat or `react-native log-android`
+  </Accordion>
+  
+  <Accordion title="Red screen: 'Unable to connect to development server'">
+    **iOS**: Ensure Metro is running and simulator can reach localhost.
+    
+    **Android**: Reverse ports:
+    ```bash
+    yarn android-reverse-ports
+    ```
+  </Accordion>
+  
+  <Accordion title="Hot reload not working">
+    1. Check Metro is running
+    2. Open developer menu
+    3. Ensure **Fast Refresh** is enabled
+    4. Try manual reload: **Cmd+R** (iOS) or **R+R** (Android)
+  </Accordion>
+  
+  <Accordion title="Clean build and retry">
+    If issues persist, clean everything:
+    
+    ```bash
+    # Full clean
+    ./scripts/nuke.sh
+    
+    # Reinstall
+    yarn install && yarn setup
+    yarn install-pods  # iOS only
+    
+    # Rebuild
+    yarn ios  # or yarn android
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Performance Tips
+
+- Use **release mode** for accurate performance testing
+- Disable **Remote JS Debugging** (it slows down the app significantly)
+- Use **Flipper** or **React DevTools** instead of Chrome DevTools
+- Profile with **React DevTools Profiler**
+- Monitor performance with `yarn shopify:perf` if using Shopify performance tools
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Building" icon="hammer" href="/development/building">
+    Create production builds and release packages
+  </Card>
+  <Card title="Debugging" icon="bug" href="/development/debugging">
+    Debug issues and run E2E tests
+  </Card>
+</CardGroup>

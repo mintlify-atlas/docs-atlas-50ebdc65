@@ -1,0 +1,475 @@
+---
+title: Collectibles Management
+description: Digital collectibles, POAPs, and special NFT categories
+---
+
+Beyond standard NFTs, Rainbow supports various digital collectibles including POAPs, badges, and other unique digital assets.
+
+## Types of Collectibles
+
+Rainbow recognizes several collectible categories:
+
+### POAPs (Proof of Attendance Protocol)
+
+<Info>
+  **What are POAPs?**
+  
+  POAPs are digital badges proving you attended an event, participated in an activity, or were part of a moment in time.
+</Info>
+
+POAP features:
+- **Event Badges**: Commemorate attendance
+- **No Monetary Value**: Designed as mementos, not investments
+- **Unique Artwork**: Custom design per event
+- **Historical Record**: Timeline of your participation
+- **Non-Transferable**: Often soulbound to your wallet
+
+### Achievement Badges
+
+Digital achievements from:
+- **DeFi Protocols**: Liquidity provider badges
+- **DAOs**: Governance participation
+- **Games**: In-game achievements
+- **Platforms**: Platform milestones
+
+### Soulbound Tokens (SBTs)
+
+Non-transferable tokens representing:
+- **Credentials**: Verified qualifications
+- **Reputation**: On-chain reputation scores
+- **Memberships**: Community membership proof
+- **Identity**: Decentralized identity components
+
+<Note>
+  Soulbound tokens cannot be transferred or sold. They're permanently bound to your wallet address.
+</Note>
+
+## Collectible Display
+
+Collectibles shown separately from tradeable NFTs:
+
+### Organization
+
+```typescript
+interface CollectibleCategory {
+  poaps: UniqueAsset[];        // Event attendance badges
+  achievements: UniqueAsset[]; // Achievement/reward badges  
+  soulbound: UniqueAsset[];    // Non-transferable tokens
+  other: UniqueAsset[];        // Uncategorized collectibles
+}
+```
+
+### Categorization Logic
+
+```typescript
+const categorizeCollectible = (asset: UniqueAsset): CollectibleType => {
+  // Check contract address for known collectible types
+  if (isPoapContract(asset.contractAddress)) {
+    return 'poaps';
+  }
+  
+  // Check metadata for soulbound indicator
+  if (asset.metadata?.soulbound || !asset.transferable) {
+    return 'soulbound';
+  }
+  
+  // Check for achievement/badge indicators
+  if (asset.metadata?.type === 'badge' || asset.metadata?.achievement) {
+    return 'achievements';
+  }
+  
+  return 'other';
+};
+```
+
+## POAP Management
+
+### POAP Display
+
+POAPs shown with special features:
+
+<Tabs>
+  <Tab title="Timeline View">
+    Chronological display:
+    - Sorted by event date
+    - Year/month grouping
+    - Event details
+    - Attendance timestamp
+  </Tab>
+  
+  <Tab title="Gallery View">
+    Visual grid:
+    - POAP artwork
+    - Event name
+    - Date badge
+    - Quick details
+  </Tab>
+  
+  <Tab title="Event Details">
+    Full information:
+    - Event name and description
+    - Date and location
+    - Organizer info
+    - Number of attendees
+    - External links
+  </Tab>
+</Tabs>
+
+### POAP Metadata
+
+```typescript
+interface PoapMetadata {
+  event: {
+    id: number;
+    name: string;
+    description: string;
+    city: string;
+    country: string;
+    start_date: string;
+    end_date: string;
+    event_url: string;
+  };
+  tokenId: string;
+  owner: string;
+  chain: string;
+  created: string;
+}
+```
+
+### POAP-Specific Features
+
+<CardGroup cols={2}>
+  <Card title="Event Info" icon="calendar">
+    View complete event details:
+    - When and where
+    - Event description
+    - Organizer information
+    - Related links
+  </Card>
+  
+  <Card title="Attendee Count" icon="users">
+    See participation:
+    - Total attendees
+    - Claim statistics
+    - Unique holders
+  </Card>
+  
+  <Card title="Share Memory" icon="share-nodes">
+    Share your POAP:
+    - Social media integration
+    - Generate POAP showcase
+    - Embed in profiles
+  </Card>
+  
+  <Card title="Claim History" icon="clock-rotate-left">
+    Participation timeline:
+    - All POAPs chronologically
+    - Event participation history
+    - Export attendance record
+  </Card>
+</CardGroup>
+
+## Achievement Badges
+
+Protocol and platform achievements:
+
+### Common Achievement Types
+
+<AccordionGroup>
+  <Accordion title="DeFi Achievements">
+    From DeFi protocols:
+    - First liquidity provision
+    - Governance participation
+    - Protocol milestones
+    - Community contributions
+    - Testnet participation
+  </Accordion>
+  
+  <Accordion title="NFT Achievements">
+    NFT platform badges:
+    - First NFT minted
+    - Collection completed
+    - Early adopter badges
+    - Platform loyalty rewards
+  </Accordion>
+  
+  <Accordion title="DAO Badges">
+    DAO participation:
+    - DAO membership
+    - Voting participation
+    - Proposal creation
+    - Committee membership
+    - Special roles
+  </Accordion>
+  
+  <Accordion title="Game Achievements">
+    Web3 gaming:
+    - Level milestones
+    - Quest completion
+    - Tournament participation
+    - Rare item discovery
+    - Leaderboard placement
+  </Accordion>
+</AccordionGroup>
+
+### Achievement Display
+
+Achievements shown with:
+- **Unlock Date**: When you earned it
+- **Rarity**: How many people have it
+- **Description**: What you did to earn it
+- **Issuer**: Who granted the achievement
+- **Progress**: Towards next tier (if applicable)
+
+## Soulbound Tokens
+
+Non-transferable tokens with special handling:
+
+### SBT Characteristics
+
+```typescript
+interface SoulboundToken extends UniqueAsset {
+  transferable: false;         // Cannot be transferred
+  soulbound: true;            // Explicitly marked
+  
+  binding: {
+    boundTo: Address;         // Wallet it's bound to
+    boundAt: number;          // When it was bound
+    permanent: boolean;       // Can never be unbound
+  };
+  
+  // Optional expiration
+  expiration?: {
+    expiresAt: number;        // Expiration timestamp
+    renewable: boolean;       // Can be renewed
+  };
+}
+```
+
+### SBT Use Cases
+
+<Steps>
+  <Step title="Identity & Credentials">
+    Proof of identity or qualifications:
+    - Educational degrees
+    - Professional certifications
+    - Verified identity attributes
+    - Background checks
+  </Step>
+  
+  <Step title="Reputation Scores">
+    On-chain reputation:
+    - Credit scores
+    - Trust ratings
+    - Contribution history
+    - Community standing
+  </Step>
+  
+  <Step title="Memberships">
+    Organization membership:
+    - DAO membership
+    - Club access
+    - Subscription status
+    - Tier levels
+  </Step>
+  
+  <Step title="Governance Rights">
+    Voting and participation:
+    - Voting power
+    - Proposal rights
+    - Committee positions
+    - Special permissions
+  </Step>
+</Steps>
+
+<Warning>
+  Soulbound tokens are **permanently** associated with your wallet. Creating a new wallet means losing these credentials.
+</Warning>
+
+## Collectible Actions
+
+### Available Actions
+
+Actions vary by collectible type:
+
+<Tabs>
+  <Tab title="POAPs">
+    POAP-specific actions:
+    - View event details
+    - Share on social media
+    - Add to showcase
+    - Export attendance proof
+    - **Cannot transfer** (usually)
+  </Tab>
+  
+  <Tab title="Achievements">
+    Achievement actions:
+    - View achievement details
+    - Check rarity/stats
+    - Share achievement
+    - Add to profile
+    - **May be transferable**
+  </Tab>
+  
+  <Tab title="Soulbound">
+    SBT actions:
+    - View credential details
+    - Verify authenticity
+    - Export proof
+    - Renew (if expirable)
+    - **Cannot transfer**
+  </Tab>
+  
+  <Tab title="Other">
+    General collectible actions:
+    - View metadata
+    - Hide from display
+    - Report spam
+    - Check transferability
+  </Tab>
+</Tabs>
+
+## Spam Collectibles
+
+Unwanted collectibles are common:
+
+### Identifying Spam
+
+Spam collectible indicators:
+- Unknown issuer
+- Suspicious metadata
+- Phishing links in description
+- Unsolicited airdrops
+- Too-good-to-be-true offers
+
+### Managing Spam
+
+<Steps>
+  <Step title="Automatic Detection">
+    Rainbow flags likely spam:
+    - Unknown contracts
+    - Suspicious patterns
+    - Reported by community
+    - Phishing indicators
+  </Step>
+  
+  <Step title="Manual Hiding">
+    Hide unwanted collectibles:
+    - Hide individual items
+    - Hide entire categories
+    - Report as spam
+    - Block specific contracts
+  </Step>
+  
+  <Step title="Safety Measures">
+    Protect yourself:
+    - Never click suspicious links
+    - Don't approve unknown contracts
+    - Report phishing attempts
+    - Keep collectibles isolated
+  </Step>
+</Steps>
+
+<Warning>
+  **Common collectible scams:**
+  - Fake POAPs with phishing links
+  - "Prize" tokens requiring approval
+  - Fake achievement badges
+  - Impersonation of real projects
+  
+  Always verify authenticity before interacting!
+</Warning>
+
+## Collectible Showcase
+
+Feature your favorite collectibles:
+
+### Showcase Features
+
+- **Mix & Match**: Combine POAPs, achievements, and NFTs
+- **Curated Display**: Choose what to highlight
+- **Timeline View**: Show chronological journey
+- **Category Sections**: Organize by type
+
+### Creating a Showcase
+
+<Steps>
+  <Step title="Select Collectibles">
+    Choose items to feature:
+    - POAPs from meaningful events
+    - Rare achievements
+    - Favorite NFTs
+    - Important credentials
+  </Step>
+  
+  <Step title="Arrange Display">
+    Organize presentation:
+    - Drag to reorder
+    - Group by category or time
+    - Add descriptions
+    - Set visibility
+  </Step>
+  
+  <Step title="Share Showcase">
+    Make it public:
+    - Generate shareable link
+    - Embed in profiles
+    - Social media sharing
+    - QR code generation
+  </Step>
+</Steps>
+
+## Collectible Storage & Sync
+
+### Cross-Device Sync
+
+Collectible organization syncs:
+- Hidden items
+- Showcase selections
+- Category customizations
+- Notes and tags
+
+### Local Storage
+
+```typescript
+interface CollectiblePreferences {
+  hidden: Set<UniqueId>;              // Hidden collectibles
+  showcase: UniqueId[];               // Featured items
+  categories: Record<UniqueId, string>; // Custom categories
+  notes: Record<UniqueId, string>;    // Personal notes
+}
+```
+
+## Integration with Profiles
+
+Collectibles enhance your wallet profile:
+
+### Profile Display
+
+- **Featured Section**: Top collectibles
+- **Recent POAPs**: Latest event attendance  
+- **Achievement Count**: Total achievements
+- **Rare Items**: Showcase rare collectibles
+
+### Social Features
+
+- **Share Collections**: Show off your collectibles
+- **Compare**: See what friends have
+- **Leaderboards**: Achievement rankings
+- **Discovery**: Find new collectibles
+
+## Related Features
+
+<CardGroup cols={2}>
+  <Card title="NFT Management" icon="image" href="/features/assets/nfts">
+    Managing standard NFT collections
+  </Card>
+  
+  <Card title="Assets Overview" icon="coins" href="/features/assets/overview">
+    All asset types and management
+  </Card>
+  
+  <Card title="Wallet Overview" icon="wallet" href="/features/wallet/overview">
+    Wallet management features
+  </Card>
+</CardGroup>

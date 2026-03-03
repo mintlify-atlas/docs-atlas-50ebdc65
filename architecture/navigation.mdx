@@ -1,0 +1,581 @@
+---
+title: Navigation System
+description: React Navigation with custom sheet coordination and virtual navigators
+---
+
+Rainbow uses React Navigation with custom enhancements for sheet coordination, virtual navigation, and state management.
+
+## Overview
+
+The navigation system provides:
+- **React Navigation foundation** - Native stack navigator
+- **Sheet coordination** - Synchronized sheet dismissal and navigation
+- **Virtual navigators** - Nested navigation without native stacks
+- **Bottom sheet integration** - Custom bottom sheet navigator
+- **Global navigation** - Navigate from anywhere in the app
+- **Route tracking** - Centralized active route management
+
+## Core Navigation
+
+### Navigate from Components
+
+```typescript
+import { useNavigation } from '@/navigation';
+import Routes from '@/navigation/routesNames';
+
+function MyComponent() {
+  const { navigate, goBack, replace } = useNavigation();
+  
+  const handlePress = () => {
+    // Navigate to a screen
+    navigate(Routes.WALLET_SCREEN);
+    
+    // Navigate with params
+    navigate(Routes.TOKEN_DETAILS, { address: '0x...' });
+    
+    // Replace current screen
+    replace(Routes.SETTINGS_SCREEN);
+    
+    // Go back
+    goBack();
+  };
+}
+```
+
+### Navigate from Anywhere
+
+```typescript
+import Navigation from '@/navigation/Navigation';
+import Routes from '@/navigation/routesNames';
+
+// Outside React components
+function handleDeepLink(url: string) {
+  Navigation.handleAction(Routes.WALLET_SCREEN);
+}
+
+// With params
+Navigation.handleAction(Routes.TOKEN_DETAILS, { address: '0x...' });
+
+// Go back
+Navigation.goBack();
+```
+
+## Route Names
+
+All routes are defined in a central registry:
+
+```typescript src/navigation/routesNames.ts
+const Routes = {
+  // Main screens
+  WALLET_SCREEN: 'WalletScreen',
+  DISCOVER_SCREEN: 'DiscoverScreen',
+  PROFILE_SCREEN: 'ProfileScreen',
+  
+  // Feature screens
+  TOKEN_DETAILS: 'TokenDetails',
+  SWAP_SCREEN: 'SwapScreen',
+  SEND_SCREEN: 'SendScreen',
+  
+  // Sheets
+  SETTINGS_SHEET: 'SettingsSheet',
+  WALLET_CONNECT_SHEET: 'WalletConnectSheet',
+} as const;
+
+export default Routes;
+```
+
+### Route Types
+
+```typescript
+import type { Route, RouteParams } from '@/navigation/Navigation';
+
+// Get route parameter types
+type TokenDetailsParams = RouteParams<typeof Routes.TOKEN_DETAILS>;
+// { address: string; symbol?: string }
+
+// Use in component
+function TokenDetails() {
+  const route = useRoute<typeof Routes.TOKEN_DETAILS>();
+  const { address, symbol } = route.params;
+}
+```
+
+## Navigation Store
+
+The navigation store tracks active routes:
+
+```typescript src/state/navigation/navigationStore.ts
+import { createRainbowStore } from '../internal/createRainbowStore';
+
+export type NavigationState = {
+  activeRoute: Route;
+  activeSwipeRoute: SwipeRoute;
+  animatedActiveRoute: SharedValue<Route>;
+  animatedActiveSwipeRoute: SharedValue<SwipeRoute>;
+  isWalletScreenMounted: boolean;
+  
+  isRouteActive: (route: Route) => boolean;
+  setActiveRoute: (route: Route) => void;
+};
+
+export const useNavigationStore = createRainbowStore<NavigationState>((set, get) => ({
+  activeRoute: Routes.WALLET_SCREEN,
+  activeSwipeRoute: Routes.WALLET_SCREEN,
+  animatedActiveRoute: makeMutable<Route>(Routes.WALLET_SCREEN),
+  animatedActiveSwipeRoute: makeMutable<SwipeRoute>(Routes.WALLET_SCREEN),
+  isWalletScreenMounted: false,
+
+  isRouteActive: route => route === get().activeRoute,
+
+  setActiveRoute: route => set(state => {
+    const newActiveRoute = VIRTUAL_NAVIGATORS[route]?.getActiveRoute() ?? route;
+    if (newActiveRoute === state.activeRoute) return state;
+    
+    const onSwipeRoute = isSwipeRoute(newActiveRoute);
+    state.animatedActiveRoute.value = newActiveRoute;
+    if (onSwipeRoute) state.animatedActiveSwipeRoute.value = newActiveRoute;
+
+    return {
+      activeRoute: newActiveRoute,
+      activeSwipeRoute: onSwipeRoute ? newActiveRoute : state.activeSwipeRoute,
+    };
+  }),
+}));
+
+// Export for external use
+export const { isRouteActive, setActiveRoute } = useNavigationStore.getState();
+```
+
+### Using Navigation State
+
+```typescript
+function MyComponent() {
+  const activeRoute = useNavigationStore(s => s.activeRoute);
+  const isWalletActive = useNavigationStore(s => s.isRouteActive(Routes.WALLET_SCREEN));
+  
+  return (
+    <View>
+      <Text>Current: {activeRoute}</Text>
+      {isWalletActive && <WalletIndicator />}
+    </View>
+  );
+}
+```
+
+## Sheet Coordination
+
+Rainbow coordinates sheet dismissals with navigation to prevent glitches:
+
+```typescript src/navigation/Navigation.tsx
+// Sheet coordinator state
+type SheetCoordinator = {
+  isClosing: boolean;
+  pendingActions: (() => void)[];
+};
+
+const sheetCoordinator: SheetCoordinator = {
+  isClosing: false,
+  pendingActions: [],
+};
+
+// Called when sheet starts closing
+export function onWillPop(): void {
+  sheetCoordinator.isClosing = true;
+}
+
+// Called after sheet finishes closing
+export function onDidPop(): void {
+  sheetCoordinator.isClosing = false;
+  
+  // Execute pending actions
+  if (sheetCoordinator.pendingActions.length) {
+    setImmediate(() => {
+      for (const action of sheetCoordinator.pendingActions) action();
+      sheetCoordinator.pendingActions = [];
+    });
+  }
+  
+  scheduleRouteChange();
+}
+
+// Queue action to run after sheet closes
+function runAfterSheetDismissal(action: () => void): void {
+  if (sheetCoordinator.isClosing) {
+    sheetCoordinator.pendingActions.push(action);
+  } else {
+    action();
+  }
+}
+```
+
+### Usage in Sheets
+
+```typescript
+import { onWillPop, onDidPop } from '@/navigation/Navigation';
+
+function MySheet() {
+  const handleDismiss = () => {
+    onWillPop();  // Mark as closing
+    // ... sheet dismissal animation ...
+    onDidPop();   // Mark as closed, run pending actions
+  };
+}
+```
+
+## Virtual Navigators
+
+Virtual navigators provide nested navigation without additional native stacks:
+
+```typescript src/navigation/virtualNavigators.ts
+import { createVirtualNavigator } from './createVirtualNavigator';
+
+const DiscoverNavigator = createVirtualNavigator([
+  Routes.DISCOVER_HOME,
+  Routes.DISCOVER_SEARCH,
+  Routes.DISCOVER_TRENDING,
+]);
+
+export const VIRTUAL_NAVIGATORS = {
+  [Routes.DISCOVER_SCREEN]: DiscoverNavigator,
+  [Routes.DAPP_BROWSER_SCREEN]: BrowserNavigator,
+} as const;
+```
+
+### Creating a Virtual Navigator
+
+```typescript
+import { createVirtualNavigator } from '@/navigation/createVirtualNavigator';
+
+const MyNavigator = createVirtualNavigator([
+  Routes.TAB_ONE,
+  Routes.TAB_TWO,
+  Routes.TAB_THREE,
+]);
+
+// Get active route
+const activeRoute = MyNavigator.getActiveRoute();
+
+// Navigate within virtual navigator
+MyNavigator.navigate(Routes.TAB_TWO);
+
+// Get full route state
+const routeState = MyNavigator.getActiveRouteState();
+```
+
+## Bottom Sheet Navigator
+
+Custom navigator for bottom sheet presentations:
+
+```typescript src/navigation/bottom-sheet/
+// actions.ts
+export const BottomSheetActions = {
+  NAVIGATE: 'BOTTOM_SHEET_NAVIGATE',
+  GO_BACK: 'BOTTOM_SHEET_GO_BACK',
+  POP: 'BOTTOM_SHEET_POP',
+};
+
+// hooks/useBottomSheetNavigator.ts
+export function useBottomSheetNavigator() {
+  const navigate = (routeName: string, params?: object) => {
+    // ... implementation
+  };
+  
+  const goBack = () => {
+    // ... implementation
+  };
+  
+  return { navigate, goBack };
+}
+```
+
+### Usage
+
+```typescript
+import { useBottomSheetNavigator } from '@/navigation/bottom-sheet';
+
+function MyBottomSheet() {
+  const { navigate, goBack } = useBottomSheetNavigator();
+  
+  const handlePress = () => {
+    navigate('NestedSheet', { data: '...' });
+  };
+}
+```
+
+## Navigation Ref
+
+Access the navigation ref from anywhere:
+
+```typescript
+import { getNavigationRef } from '@/navigation/Navigation';
+
+const ref = getNavigationRef();
+
+if (ref?.isReady()) {
+  ref.navigate('SomeScreen');
+}
+```
+
+## Route Params
+
+Define and use typed route parameters:
+
+```typescript src/navigation/types.ts
+export type RootStackParamList = {
+  WalletScreen: undefined;
+  TokenDetails: {
+    address: string;
+    symbol?: string;
+  };
+  SendScreen: {
+    asset: string;
+    address?: string;
+  };
+};
+```
+
+### Access Params
+
+```typescript
+import { useRoute } from '@/navigation';
+import Routes from '@/navigation/routesNames';
+
+function TokenDetails() {
+  const route = useRoute<typeof Routes.TOKEN_DETAILS>();
+  const { address, symbol } = route.params;
+  
+  return <Text>{symbol || address}</Text>;
+}
+```
+
+### Navigate with Params
+
+```typescript
+function TokenList() {
+  const { navigate } = useNavigation();
+  
+  const handleTokenPress = (token: Token) => {
+    navigate(Routes.TOKEN_DETAILS, {
+      address: token.address,
+      symbol: token.symbol,
+    });
+  };
+}
+```
+
+## Navigation Configuration
+
+### Stack Config
+
+```typescript src/navigation/nativeStackConfig.ts
+export const nativeStackDefaultConfig = {
+  headerShown: false,
+  animation: 'default',
+  gestureEnabled: true,
+  fullScreenGestureEnabled: true,
+};
+
+export const sheetConfig = {
+  presentation: 'modal',
+  gestureEnabled: true,
+  animation: 'slide_from_bottom',
+};
+```
+
+### Screen Options
+
+```typescript
+import { useNavigation } from '@/navigation';
+
+function MyScreen() {
+  const { setOptions } = useNavigation();
+  
+  useEffect(() => {
+    setOptions({
+      headerShown: true,
+      title: 'My Screen',
+      gestureEnabled: false,
+    });
+  }, []);
+}
+```
+
+## Prefetching
+
+Register prefetch functions for screens:
+
+```typescript src/navigation/prefetchRegistry.ts
+export const prefetchRegistry: Partial<Record<Route, (params: any) => void>> = {
+  [Routes.TOKEN_DETAILS]: (params) => {
+    // Prefetch token data
+    prefetchTokenData(params.address);
+  },
+  [Routes.SWAP_SCREEN]: () => {
+    // Prefetch swap quotes
+    prefetchSwapQuotes();
+  },
+};
+```
+
+Prefetch functions are automatically called before navigation.
+
+## Deep Linking
+
+Handle deep links and universal links:
+
+```typescript
+import { useUntrustedUrlOpener } from '@/navigation/useUntrustedUrlOpener';
+
+function App() {
+  const openUrl = useUntrustedUrlOpener();
+  
+  useEffect(() => {
+    const handleDeepLink = ({ url }: { url: string }) => {
+      openUrl(url);
+    };
+    
+    Linking.addEventListener('url', handleDeepLink);
+    
+    return () => {
+      Linking.removeAllListeners('url');
+    };
+  }, []);
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use route constants">
+    Always use route constants from `routesNames.ts`:
+    
+    ```typescript
+    // ✅ Good
+    navigate(Routes.WALLET_SCREEN);
+    
+    // ❌ Bad
+    navigate('WalletScreen');
+    ```
+  </Accordion>
+  
+  <Accordion title="Type your route params">
+    Define params in `RootStackParamList`:
+    
+    ```typescript
+    type RootStackParamList = {
+      MyScreen: { id: string; mode?: 'view' | 'edit' };
+    };
+    ```
+  </Accordion>
+  
+  <Accordion title="Coordinate sheet dismissals">
+    Use `onWillPop` and `onDidPop` for sheets:
+    
+    ```typescript
+    const handleDismiss = () => {
+      onWillPop();
+      // ... dismissal ...
+      onDidPop();
+    };
+    ```
+  </Accordion>
+  
+  <Accordion title="Prefetch when possible">
+    Register prefetch functions for data-heavy screens:
+    
+    ```typescript
+    prefetchRegistry[Routes.MY_SCREEN] = (params) => {
+      prefetchData(params);
+    };
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Common Patterns
+
+### Conditional Navigation
+
+```typescript
+function handlePress() {
+  if (!isAuthenticated) {
+    navigate(Routes.LOGIN_SCREEN);
+    return;
+  }
+  
+  if (!hasWallet) {
+    navigate(Routes.ONBOARDING_SCREEN);
+    return;
+  }
+  
+  navigate(Routes.WALLET_SCREEN);
+}
+```
+
+### Navigation with Confirmation
+
+```typescript
+const { goBack } = useNavigation();
+
+const handleBack = async () => {
+  if (hasUnsavedChanges) {
+    const confirmed = await showConfirmation('Discard changes?');
+    if (!confirmed) return;
+  }
+  
+  goBack();
+};
+```
+
+### Reset Navigation Stack
+
+```typescript
+import { CommonActions } from '@react-navigation/native';
+import { getNavigationRef } from '@/navigation/Navigation';
+
+function resetToWallet() {
+  const ref = getNavigationRef();
+  
+  ref?.dispatch(
+    CommonActions.reset({
+      index: 0,
+      routes: [{ name: Routes.WALLET_SCREEN }],
+    })
+  );
+}
+```
+
+## Navigation Events
+
+```typescript
+import { useNavigation } from '@/navigation';
+
+function MyScreen() {
+  const navigation = useNavigation();
+  
+  useEffect(() => {
+    const unsubscribeFocus = navigation.addListener('focus', () => {
+      console.log('Screen focused');
+    });
+    
+    const unsubscribeBlur = navigation.addListener('blur', () => {
+      console.log('Screen blurred');
+    });
+    
+    return () => {
+      unsubscribeFocus();
+      unsubscribeBlur();
+    };
+  }, [navigation]);
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Storage System" icon="hard-drive" href="/architecture/storage">
+    Learn about MMKV persistence
+  </Card>
+  <Card title="Analytics" icon="chart-line" href="/architecture/analytics">
+    Understand event tracking
+  </Card>
+</CardGroup>

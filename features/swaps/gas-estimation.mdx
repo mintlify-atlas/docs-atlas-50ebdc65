@@ -1,0 +1,566 @@
+---
+title: Gas Estimation
+description: How Rainbow estimates and optimizes gas fees for swaps
+---
+
+Rainbow provides accurate gas estimation for swaps, including token approvals and complex multi-step transactions.
+
+## Gas Architecture
+
+Gas fees calculated using EIP-1559 mechanism:
+
+```typescript
+// From src/__swaps__/types/gas.ts
+enum GasSpeed {
+  URGENT = 'urgent',
+  FAST = 'fast',
+  NORMAL = 'normal',
+  CUSTOM = 'custom',
+}
+
+interface GasFeeParams {
+  maxBaseFee: GasFeeParam;           // Max base fee willing to pay
+  maxPriorityFeePerGas: GasFeeParam; // Tip for validators
+  option: GasSpeed;                   // Speed selection
+  estimatedTime: {                    // Estimated confirmation time
+    amount: number;
+    display: string;
+  };
+  gasFee: {                           // Total fee estimate
+    amount: string;                   // In wei
+    display: string;                  // Formatted
+  };
+  transactionGasParams: TransactionGasParams; // For transaction
+}
+
+interface TransactionGasParams {
+  maxPriorityFeePerGas: string;      // In wei
+  maxFeePerGas: string;              // In wei
+}
+```
+
+## Gas Estimation Flow
+
+<Steps>
+  <Step title="Fetch Network Gas Data">
+    Get current network gas prices:
+    - Query gas price oracles
+    - Get base fee from latest block
+    - Fetch priority fee recommendations
+    - Build fee options (normal, fast, urgent)
+  </Step>
+  
+  <Step title="Estimate Gas Limit">
+    Calculate gas units needed:
+    ```typescript
+    // From src/__swaps__/screens/Swap/hooks/useSwapEstimatedGasLimit.ts
+    const gasLimit = await (
+      quote.swapType === SwapType.crossChain
+        ? estimateUnlockAndCrosschainSwap({ chainId, quote })
+        : estimateUnlockAndSwap({ chainId, quote })
+    );
+    ```
+  </Step>
+  
+  <Step title="Calculate Total Cost">
+    Compute total gas fee:
+    ```typescript
+    const gasFee = calculateGasFeeWorklet(gasSettings, gasLimit);
+    const totalCost = mulWorklet(gasLimit, maxFeePerGas);
+    ```
+  </Step>
+  
+  <Step title="Convert to Display Currency">
+    Show cost in user's currency:
+    ```typescript
+    const nativeAssetPrice = getNativeAssetPrice(chainId);
+    const feeInNative = formatUnits(gasFee, 18);
+    const feeInUSD = mulWorklet(feeInNative, nativeAssetPrice);
+    ```
+  </Step>
+  
+  <Step title="Display to User">
+    Show gas estimate in UI:
+    - Gas cost in native token (ETH, MATIC, etc.)
+    - Gas cost in USD
+    - Estimated confirmation time
+    - Option to customize
+  </Step>
+</Steps>
+
+## Gas Limit Estimation
+
+Estimating gas units required:
+
+### Simple Swap
+
+```typescript
+// From src/__swaps__/screens/Swap/hooks/useSwapEstimatedGasLimit.ts
+async function estimateUnlockAndSwap({
+  chainId,
+  quote,
+}: {
+  chainId: ChainId;
+  quote: Quote;
+}): Promise<string> {
+  // Check if approval needed
+  const requiresApproval = await checkTokenAllowance(
+    quote.sellTokenAsset.address,
+    quote.allowanceTarget,
+    quote.sellAmount
+  );
+  
+  let totalGas = BigNumber.from(0);
+  
+  // Add approval gas if needed
+  if (requiresApproval) {
+    const approvalGas = await estimateApprovalGas(
+      quote.sellTokenAsset.address,
+      quote.allowanceTarget,
+      quote.sellAmount
+    );
+    totalGas = totalGas.add(approvalGas);
+  }
+  
+  // Add swap gas
+  const swapGas = await estimateSwapGas(quote);
+  totalGas = totalGas.add(swapGas);
+  
+  // Add 10% safety margin
+  const withMargin = totalGas.mul(110).div(100);
+  
+  return withMargin.toString();
+}
+```
+
+### Cross-Chain Swap
+
+```typescript
+async function estimateUnlockAndCrosschainSwap({
+  chainId,
+  quote,
+}: {
+  chainId: ChainId;
+  quote: CrosschainQuote;
+}): Promise<string> {
+  let totalGas = BigNumber.from(0);
+  
+  // Estimate for each transaction in route
+  for (const route of quote.routes) {
+    for (const userTx of route.userTxs || []) {
+      const txGas = await provider.estimateGas({
+        to: userTx.to,
+        data: userTx.data,
+        value: userTx.value,
+        from: currentAddress,
+      });
+      
+      totalGas = totalGas.add(txGas);
+    }
+  }
+  
+  // Add safety margin
+  return totalGas.mul(110).div(100).toString();
+}
+```
+
+## Gas Price Calculation
+
+EIP-1559 gas price components:
+
+### Base Fee
+
+- **Network Base Fee**: Set by protocol, burns
+- **Dynamic**: Adjusts based on block fullness
+- **Cannot be lower**: Transaction fails if base fee too low
+
+### Priority Fee
+
+- **Validator Tip**: Incentive for inclusion
+- **User Sets**: You control this amount
+- **Higher = Faster**: More likely to be included quickly
+
+### Max Fee Per Gas
+
+```typescript
+// Total maximum you're willing to pay per gas unit
+maxFeePerGas = maxBaseFee + maxPriorityFeePerGas;
+
+// Actual cost:
+actualCost = gasUsed * (baseFee + priorityFee);
+
+// Refund if base fee lower than max:
+refund = gasUsed * (maxBaseFee - actualBaseFee);
+```
+
+## Gas Speed Options
+
+Different speed tiers:
+
+<Tabs>
+  <Tab title="Normal">
+    **Standard Speed**
+    
+    - Base fee: Current network base fee
+    - Priority fee: 1-2 Gwei
+    - Confirmation: 1-2 minutes typically
+    - Cost: Lowest
+    
+    Best for: Non-urgent swaps
+  </Tab>
+  
+  <Tab title="Fast">
+    **Fast Speed**
+    
+    - Base fee: Current + 10%
+    - Priority fee: 2-3 Gwei
+    - Confirmation: Less than 1 minute typically  
+    - Cost: Medium
+    
+    Best for: Most swaps, good balance
+  </Tab>
+  
+  <Tab title="Urgent">
+    **Maximum Speed**
+    
+    - Base fee: Current + 20%
+    - Priority fee: 5+ Gwei
+    - Confirmation: Next block (12-15 seconds)
+    - Cost: Highest
+    
+    Best for: Time-sensitive, volatile markets
+  </Tab>
+  
+  <Tab title="Custom">
+    **Manual Configuration**
+    
+    - Set your own base fee max
+    - Set your own priority fee
+    - Full control
+    - Risk of failure if too low
+    
+    Best for: Advanced users
+  </Tab>
+</Tabs>
+
+## Gas Calculation
+
+Calculating actual gas cost:
+
+```typescript
+// From providers/SyncSwapStateAndSharedValues.tsx
+export function calculateGasFeeWorklet(
+  gasSettings: GasSettings,
+  gasLimit: string
+): string {
+  'worklet';
+  
+  if (!gasSettings || !gasLimit) return '0';
+  
+  // EIP-1559 transaction
+  if ('maxFeePerGas' in gasSettings) {
+    // Use maxFeePerGas as upper bound
+    return mulWorklet(
+      gasLimit,
+      gasSettings.maxFeePerGas
+    );
+  }
+  
+  // Legacy transaction
+  if ('gasPrice' in gasSettings) {
+    return mulWorklet(
+      gasLimit,
+      gasSettings.gasPrice
+    );
+  }
+  
+  return '0';
+}
+```
+
+## Gas Fee Display
+
+Formatting gas costs for users:
+
+```typescript
+// From src/__swaps__/screens/Swap/hooks/useEstimatedGasFee.ts
+export function useEstimatedGasFee({
+  chainId,
+  gasLimit,
+  gasSettings,
+}: {
+  chainId: ChainId;
+  gasLimit: string | undefined;
+  gasSettings: GasSettings | undefined;
+}) {
+  const nativeNetworkAsset = useNativeAsset({ chainId });
+  const nativeCurrency = userAssetsStoreManager(state => state.currency);
+  
+  return useMemo(() => {
+    if (!gasLimit || !gasSettings || !nativeNetworkAsset?.price) return;
+    
+    // Calculate total gas fee
+    const gasFee = calculateGasFeeWorklet(gasSettings, gasLimit);
+    if (isNaN(Number(gasFee))) return;
+    
+    const networkAssetPrice = nativeNetworkAsset.price.value?.toString();
+    if (!networkAssetPrice) {
+      // Show in Gwei if no price
+      return `${formatNumber(weiToGwei(gasFee))} Gwei`;
+    }
+    
+    // Convert to native token amount
+    const feeFormatted = formatUnits(
+      safeBigInt(gasFee),
+      nativeNetworkAsset.decimals
+    ).toString();
+    
+    // Calculate USD value
+    const feeInUserCurrency = multiply(networkAssetPrice, feeFormatted);
+    
+    // Format in user's currency
+    return convertAmountToNativeDisplayWorklet(
+      feeInUserCurrency,
+      nativeCurrency,
+      true
+    );
+  }, [gasLimit, gasSettings, nativeCurrency, nativeNetworkAsset]);
+}
+```
+
+## Gas Optimization
+
+Rainbow optimizes gas usage:
+
+### Route Optimization
+
+```typescript
+// Choose route with best gas efficiency
+const optimizedRoute = routes.reduce((best, current) => {
+  const bestScore = divWorklet(
+    best.outputAmount,
+    best.estimatedGas
+  );
+  
+  const currentScore = divWorklet(
+    current.outputAmount,
+    current.estimatedGas
+  );
+  
+  return greaterThanWorklet(currentScore, bestScore) ? current : best;
+});
+```
+
+### Approval Optimization
+
+- **Check existing allowance** before requesting approval
+- **Exact amount** approvals by default (safer)
+- **Unlimited approval** option for convenience
+- **Batch approvals** when possible
+
+### Gas Tokens
+
+For advanced users:
+- Chi token support (on compatible networks)
+- Gas token burning for rebates
+- Optimized for high gas periods
+
+## Gas Safety Margins
+
+Safety buffers prevent failures:
+
+```typescript
+const SAFETY_MARGIN = 1.1; // 10% buffer
+
+const safeGasLimit = estimatedGas.mul(110).div(100);
+```
+
+Why margins needed:
+- Gas estimation can be imperfect
+- Network conditions change
+- Some operations have variable gas
+- Prevents out-of-gas failures
+
+<Note>
+  The 10% safety margin is only an upper limit. You only pay for gas actually used. The margin just ensures your transaction won't fail.
+</Note>
+
+## Custom Gas Settings
+
+Advanced users can customize:
+
+```typescript
+interface CustomGasSettings {
+  maxBaseFee: string;           // In Gwei
+  maxPriorityFeePerGas: string; // In Gwei
+  gasLimit?: string;            // Override estimated limit
+}
+
+const setCustomGas = (settings: CustomGasSettings) => {
+  // Validate settings
+  if (Number(settings.maxBaseFee) < currentBaseFee) {
+    warn('Base fee too low, transaction may not confirm');
+  }
+  
+  if (Number(settings.maxPriorityFeePerGas) < 1) {
+    warn('Priority fee very low, confirmation may be slow');
+  }
+  
+  // Apply custom settings
+  swapsStore.setState({ customGas: settings });
+};
+```
+
+<Warning>
+  Setting gas too low can result in:
+  - Transaction stuck pending
+  - Never confirmed
+  - Wasted time
+  - Need to speed up or cancel (costs more gas)
+  
+  Only use custom gas if you understand the risks!
+</Warning>
+
+## Gas for Different Chains
+
+Gas varies by network:
+
+<Tabs>
+  <Tab title="Ethereum">
+    **Mainnet Gas**
+    
+    - Highest gas costs
+    - 15-50+ Gwei typical
+    - Can spike to 100+ Gwei
+    - Swaps often $10-50+
+    
+    Tips:
+    - Swap during low-activity hours
+    - Use L2s for smaller amounts
+    - Batch transactions
+  </Tab>
+  
+  <Tab title="L2s (Arbitrum, Optimism, Base)">
+    **Layer 2 Gas**
+    
+    - Much cheaper than mainnet
+    - $0.50-5 typical
+    - More stable pricing
+    - Great for frequent swaps
+    
+    Tips:
+    - Use for smaller swaps
+    - Bridge assets to L2 first
+    - Lower slippage acceptable
+  </Tab>
+  
+  <Tab title="Sidechains (Polygon, BSC)">
+    **Sidechain Gas**
+    
+    - Very cheap
+    - $0.01-0.50 typical
+    - Paid in chain native token
+    - High transaction throughput
+    
+    Tips:
+    - Keep some native token for gas
+    - Great for testing
+    - Be aware of decentralization trade-offs
+  </Tab>
+</Tabs>
+
+## Handling Gas Spikes
+
+What to do when gas is high:
+
+<Steps>
+  <Step title="Check If Urgent">
+    Determine if swap is time-sensitive:
+    - Market moving fast? May need to pay
+    - Routine swap? Can wait
+    - Arbitrage? Calculate if profitable
+  </Step>
+  
+  <Step title="Consider Alternatives">
+    Explore options:
+    - Wait for lower gas
+    - Use L2 or sidechain
+    - Bridge to cheaper network
+    - Batch with other operations
+  </Step>
+  
+  <Step title="Optimize If Proceeding">
+    If must swap now:
+    - Use exact amount approval (one-time cost)
+    - Choose optimal gas speed
+    - Ensure trade size justifies cost
+    - Consider gas in trade calculations
+  </Step>
+</Steps>
+
+## Gas Estimation Errors
+
+Handling estimation failures:
+
+<AccordionGroup>
+  <Accordion title="Estimation Failed">
+    **Error**: Cannot estimate gas
+    
+    **Causes**:
+    - Insufficient balance
+    - Token not approved
+    - Swap would fail
+    - Network issues
+    
+    **Solutions**:
+    - Check balances
+    - Verify token approval
+    - Try smaller amount
+    - Check network connection
+  </Accordion>
+  
+  <Accordion title="Gas Too High">
+    **Warning**: Estimated gas unusually high
+    
+    **Causes**:
+    - Complex multi-hop swap
+    - High network congestion
+    - Inefficient route
+    
+    **Solutions**:
+    - Wait for lower gas
+    - Try different token pair
+    - Use different chain
+    - Reduce trade size
+  </Accordion>
+  
+  <Accordion title="Out of Gas">
+    **Error**: Transaction failed, out of gas
+    
+    **Causes**:
+    - Estimate was too low
+    - Network conditions changed
+    - Swap requirements changed
+    
+    **Solutions**:
+    - Increase gas limit
+    - Add larger safety margin
+    - Try again with updated estimate
+  </Accordion>
+</AccordionGroup>
+
+## Related Features
+
+<CardGroup cols={2}>
+  <Card title="Swaps Overview" icon="arrow-right-arrow-left" href="/features/swaps/overview">
+    Complete swap functionality
+  </Card>
+  
+  <Card title="Quote Fetching" icon="magnifying-glass-dollar" href="/features/swaps/quote-fetching">
+    How swap quotes work
+  </Card>
+  
+  <Card title="Atomic Swaps" icon="atom" href="/features/swaps/atomic-swaps">
+    Advanced swap features
+  </Card>
+</CardGroup>

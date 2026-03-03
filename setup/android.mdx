@@ -1,0 +1,486 @@
+---
+title: Android Setup
+description: Configure Android development environment for Rainbow Wallet
+---
+
+This guide covers setting up Android development for Rainbow Wallet on macOS, Linux, and Windows.
+
+## Prerequisites
+
+Before setting up Android, ensure you have:
+
+- ✅ [Prerequisites](/setup/prerequisites) installed (Node.js, Ruby)
+- ✅ [Dependencies](/setup/installation) installed (`yarn install && yarn setup`)
+
+## Installation Steps
+
+<Steps>
+  <Step title="Install JDK 17">
+    Rainbow requires JDK 17. **Do not use** the JDK bundled with Android Studio (it's JDK 21, which causes build failures).
+    
+    <Tabs>
+      <Tab title="macOS">
+        Install Azul Zulu JDK 17 via Homebrew:
+        
+        ```bash
+        brew install --cask zulu@17
+        ```
+        
+        Verify installation:
+        
+        ```bash
+        /Library/Java/JavaVirtualMachines/zulu-17.jdk/Contents/Home/bin/java -version
+        ```
+      </Tab>
+      
+      <Tab title="Linux">
+        Install OpenJDK 17:
+        
+        ```bash
+        sudo apt update
+        sudo apt install openjdk-17-jdk
+        ```
+        
+        Verify installation:
+        
+        ```bash
+        java -version
+        ```
+      </Tab>
+      
+      <Tab title="Windows">
+        1. Download Azul Zulu JDK 17 from [https://www.azul.com/downloads/?package=jdk#zulu](https://www.azul.com/downloads/?package=jdk#zulu)
+        2. Run the installer
+        3. Verify in Command Prompt:
+           ```cmd
+           java -version
+           ```
+      </Tab>
+    </Tabs>
+  </Step>
+  
+  <Step title="Configure Environment Variables">
+    Add Android SDK and Java paths to your shell profile.
+    
+    <Tabs>
+      <Tab title="macOS / Linux (zsh)">
+        Add to `~/.zshrc`:
+        
+        ```bash
+        export JAVA_HOME=/Library/Java/JavaVirtualMachines/zulu-17.jdk/Contents/Home
+        export ANDROID_HOME=$HOME/Library/Android/sdk  # macOS
+        # export ANDROID_HOME=$HOME/Android/Sdk        # Linux
+        export PATH=$PATH:$ANDROID_HOME/emulator
+        export PATH=$PATH:$ANDROID_HOME/platform-tools
+        ```
+        
+        For **Linux**, also install system dependencies:
+        
+        ```bash
+        sudo apt install libsecret-tools watchman
+        ```
+      </Tab>
+      
+      <Tab title="macOS / Linux (bash)">
+        Add to `~/.bashrc`:
+        
+        ```bash
+        export JAVA_HOME=/Library/Java/JavaVirtualMachines/zulu-17.jdk/Contents/Home
+        export ANDROID_HOME=$HOME/Library/Android/sdk  # macOS
+        # export ANDROID_HOME=$HOME/Android/Sdk        # Linux
+        export PATH=$PATH:$ANDROID_HOME/emulator
+        export PATH=$PATH:$ANDROID_HOME/platform-tools
+        ```
+      </Tab>
+      
+      <Tab title="Windows">
+        Add to System Environment Variables:
+        
+        1. Open **System Properties → Environment Variables**
+        2. Add new variables:
+           - `JAVA_HOME`: `C:\Program Files\Zulu\zulu-17`
+           - `ANDROID_HOME`: `C:\Users\YourUsername\AppData\Local\Android\Sdk`
+        3. Edit `Path` and add:
+           - `%ANDROID_HOME%\emulator`
+           - `%ANDROID_HOME%\platform-tools`
+      </Tab>
+    </Tabs>
+    
+    <Warning>
+      After adding environment variables, **restart any open terminals** for changes to take effect.
+    </Warning>
+  </Step>
+  
+  <Step title="Install Android Studio">
+    Download and install Android Studio from [https://developer.android.com/studio](https://developer.android.com/studio).
+    
+    1. Run the installer
+    2. Follow the **standard setup wizard** (recommended)
+    3. Install Android SDK, SDK Platform, and Android Virtual Device
+    
+    The wizard will install:
+    - Android SDK
+    - Android SDK Platform-Tools
+    - Android SDK Build-Tools
+    - Android Emulator
+  </Step>
+  
+  <Step title="Configure Android Studio">
+    After installation, configure Android Studio for Rainbow:
+    
+    ### Increase IDE Memory
+    
+    Rainbow is a large project. Increase the heap size:
+    
+    1. **Android Studio → Settings → Memory Settings** (macOS: **Preferences → Memory Settings**)
+    2. Set **IDE Heap Size** to at least **4096 MB** (default is 2048 MB)
+    3. Click **Save and Restart**
+    
+    ### Set Gradle JDK
+    
+    Configure Gradle to use JDK 17 (not the bundled JDK 21):
+    
+    1. **Settings → Build, Execution, Deployment → Build Tools → Gradle**
+    2. Under **Gradle JDK**, select the `JAVA_HOME` (Azul Zulu 17) entry
+    3. Click **Apply**
+    
+    <Warning>
+      The default Gradle JDK points to the bundled JDK 21, which will cause build failures.
+    </Warning>
+  </Step>
+  
+  <Step title="Create Android Emulator">
+    Create a virtual device for testing (skip if using a physical device):
+    
+    1. Open **Android Studio → Device Manager** (or **Tools → Device Manager**)
+    2. Click **Create Device**
+    3. Select a phone (e.g., **Pixel 6**)
+    4. Download and select a system image (e.g., **Android 13 - API 33**)
+    5. Click **Finish**
+    
+    <Info>
+      You can also use a physical Android device. Enable **Developer Options** and **USB Debugging** on your device.
+    </Info>
+  </Step>
+  
+  <Step title="Run First Gradle Build">
+    Run the first build from the terminal to generate native headers needed for Gradle sync:
+    
+    ```bash
+    cd android
+    ./gradlew assembleDebug
+    cd ..
+    ```
+    
+    <Note>
+      This first build can take 5-15 minutes. Subsequent builds are much faster.
+    </Note>
+  </Step>
+  
+  <Step title="Open Project in Android Studio">
+    Always launch Android Studio from the terminal so it inherits your shell environment (including `node` from nvm).
+    
+    <Tabs>
+      <Tab title="macOS">
+        ```bash
+        open -a "Android Studio"
+        ```
+        
+        Then in Android Studio:
+        1. **File → Open**
+        2. Select the `android/` folder
+        3. Wait for Gradle sync to complete
+      </Tab>
+      
+      <Tab title="Linux">
+        ```bash
+        studio.sh
+        ```
+        
+        Or if installed via snap:
+        ```bash
+        android-studio
+        ```
+        
+        Then open the `android/` folder.
+      </Tab>
+      
+      <Tab title="Windows">
+        Launch from Command Prompt or PowerShell:
+        ```cmd
+        "C:\Program Files\Android\Android Studio\bin\studio64.exe"
+        ```
+        
+        Then open the `android\` folder.
+      </Tab>
+    </Tabs>
+    
+    <Warning>
+      **Always launch Android Studio from the terminal** (not Spotlight/Dock/Start Menu). Launching from GUI won't inherit your PATH, causing "Cannot run program node" errors during Gradle sync.
+    </Warning>
+  </Step>
+</Steps>
+
+## Android Build Configuration
+
+Rainbow's Android build is configured in `android/build.gradle`:
+
+```gradle
+buildToolsVersion = "35.0.0"
+minSdkVersion = 26
+compileSdkVersion = 35
+targetSdkVersion = 35
+ndkVersion = "27.1.12297006"
+kotlin_version = "2.1.20"
+```
+
+### Minimum SDK
+
+- **minSdkVersion**: 26 (Android 8.0)
+- Supports Android 8.0 and above
+
+### Target SDK
+
+- **targetSdkVersion**: 35 (Android 15)
+- **compileSdkVersion**: 35
+
+### NDK Version
+
+- **ndkVersion**: 27.1.12297006
+- Native Development Kit for C/C++ libraries
+
+## Verify Android Setup
+
+<Steps>
+  <Step title="Check Java version">
+    ```bash
+    java -version
+    ```
+    
+    Should output: `openjdk version "17.x.x"`
+  </Step>
+  
+  <Step title="Verify JAVA_HOME">
+    ```bash
+    echo $JAVA_HOME
+    ```
+    
+    Should point to JDK 17 installation.
+  </Step>
+  
+  <Step title="Check Android SDK">
+    ```bash
+    echo $ANDROID_HOME
+    adb --version
+    ```
+    
+    `adb` (Android Debug Bridge) should be available.
+  </Step>
+  
+  <Step title="List connected devices">
+    ```bash
+    adb devices
+    ```
+    
+    Should list your emulator or physical device (after starting it).
+  </Step>
+  
+  <Step title="Test Gradle build">
+    ```bash
+    cd android
+    ./gradlew tasks
+    ```
+    
+    Should list available Gradle tasks without errors.
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Gradle sync failed: 'Cannot run program node'">
+    Android Studio doesn't have `node` in its PATH. 
+    
+    **Solution**: Always launch Android Studio from terminal:
+    
+    ```bash
+    # macOS
+    open -a "Android Studio"
+    
+    # Linux
+    studio.sh
+    ```
+    
+    This ensures Android Studio inherits your shell PATH (including nvm's `node`).
+  </Accordion>
+  
+  <Accordion title="Build fails with 'Unsupported Java version'">
+    You're using the wrong JDK version (likely JDK 21 bundled with Android Studio).
+    
+    **Solution**:
+    1. Install JDK 17 (see Step 1)
+    2. In Android Studio: **Settings → Build Tools → Gradle → Gradle JDK**
+    3. Select **Azul Zulu 17**
+  </Accordion>
+  
+  <Accordion title="Command 'android' not found">
+    The `android` command is deprecated. Use Android Studio's GUI or `sdkmanager`:
+    
+    ```bash
+    $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list
+    ```
+  </Accordion>
+  
+  <Accordion title="Emulator fails to start">
+    Check virtualization is enabled:
+    
+    **macOS**: Virtualization is built-in.
+    
+    **Linux**:
+    ```bash
+    # Check if KVM is available
+    egrep -c '(vmx|svm)' /proc/cpuinfo
+    
+    # Install KVM
+    sudo apt install qemu-kvm
+    ```
+    
+    **Windows**: Enable Hyper-V or HAXM in BIOS.
+  </Accordion>
+  
+  <Accordion title="Clean Android build">
+    If you encounter persistent issues:
+    
+    ```bash
+    # Clean Android builds
+    yarn clean:android
+    
+    # Or manually
+    cd android
+    ./gradlew clean
+    rm -rf build
+    rm -rf app/build
+    cd ..
+    
+    # Rebuild
+    cd android
+    ./gradlew assembleDebug
+    cd ..
+    ```
+  </Accordion>
+  
+  <Accordion title="Port already in use (8081)">
+    Metro bundler port is in use:
+    
+    ```bash
+    # Kill process on port 8081
+    lsof -ti:8081 | xargs kill -9
+    
+    # Restart Metro
+    yarn start
+    ```
+  </Accordion>
+  
+  <Accordion title="adb: command not found">
+    Android SDK platform-tools are not in your PATH:
+    
+    ```bash
+    export PATH=$PATH:$ANDROID_HOME/platform-tools
+    ```
+    
+    Add to your shell profile to make it permanent.
+  </Accordion>
+</AccordionGroup>
+
+## Gradle Commands
+
+Useful Gradle commands for Android development:
+
+```bash
+cd android
+
+# List all tasks
+./gradlew tasks
+
+# Build debug APK
+./gradlew assembleDebug
+
+# Build release APK
+./gradlew assembleRelease
+
+# Build release bundle (for Play Store)
+./gradlew bundleRelease
+
+# Clean build
+./gradlew clean
+
+# Install debug build on device
+./gradlew installDebug
+```
+
+Or use yarn scripts:
+
+```bash
+# Build release APK
+yarn android:apk
+
+# Build release bundle
+yarn android:bundle
+
+# Run Gradle command
+yarn gradle assembleDebug
+```
+
+## ADB Commands
+
+Android Debug Bridge (adb) commands:
+
+```bash
+# List connected devices
+adb devices
+
+# Install APK
+adb install android/app/build/outputs/apk/release/app-release.apk
+
+# Uninstall app
+adb uninstall me.rainbow
+
+# Reverse ports for Metro bundler
+adb reverse tcp:8081 tcp:8081
+
+# View device logs
+adb logcat
+
+# Clear app data
+adb shell pm clear me.rainbow
+```
+
+Yarn scripts for ADB:
+
+```bash
+# Reverse ports (single device)
+yarn android-reverse-ports
+
+# Reverse ports (all devices)
+yarn android-reverse-ports-all
+
+# Uninstall app
+yarn uninstall:android
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Running the App" icon="play" href="/development/running">
+    Build and run Rainbow on Android
+  </Card>
+  <Card title="Building" icon="hammer" href="/development/building">
+    Create production builds for Android
+  </Card>
+</CardGroup>
+
+## Additional Resources
+
+- [React Native Android Setup](https://reactnative.dev/docs/environment-setup?platform=android)
+- [Android Studio Documentation](https://developer.android.com/studio/intro)
+- [Gradle User Guide](https://docs.gradle.org/current/userguide/userguide.html)

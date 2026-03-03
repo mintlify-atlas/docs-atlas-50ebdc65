@@ -1,0 +1,516 @@
+---
+title: 'Position Tracking'
+description: 'Track DeFi deposits, pools, stakes, borrows, and rewards'
+---
+
+Rainbow Wallet automatically discovers and tracks your DeFi positions across dozens of protocols, providing a unified view of your decentralized finance portfolio.
+
+## Position Types
+
+Rainbow tracks five main types of DeFi positions:
+
+### Deposits
+
+Assets you've deposited into lending protocols or yield aggregators:
+
+- **Aave**: aTokens representing deposits
+- **Compound**: cTokens from supplied assets
+- **Yearn**: yvTokens from vault deposits
+- **Morpho**: Optimized lending positions
+
+```typescript src/features/positions/types/index.ts
+type RainbowDeposit = {
+  poolAddress: string;
+  underlying: Asset[];
+  value: string;
+  dapp: Dapp;
+};
+```
+
+### Pools (Liquidity Positions)
+
+Liquidity provider positions in AMMs:
+
+- **Uniswap V2/V3**: LP tokens and concentrated liquidity NFTs
+- **Curve**: Stablecoin pool positions
+- **Balancer**: Weighted pool tokens
+- **SushiSwap**: LP tokens
+
+```typescript src/features/positions/types/index.ts
+type RainbowPool = {
+  poolAddress: string;
+  underlying: Asset[];
+  value: string;
+  dapp: Dapp;
+  // Uniswap V3 specific:
+  inRange?: boolean;
+  priceRange?: { min: string; max: string };
+};
+```
+
+### Stakes
+
+Staked assets in staking protocols:
+
+- **Lido**: stETH positions
+- **Rocket Pool**: rETH staking
+- **Frax**: frxETH staking
+- **Protocol staking**: Governance token stakes
+
+```typescript src/features/positions/types/index.ts
+type RainbowStake = {
+  poolAddress: string;
+  underlying: Asset[];
+  value: string;
+  dapp: Dapp;
+};
+```
+
+### Borrows
+
+Outstanding borrowed positions:
+
+- **Aave**: Variable and stable rate debt
+- **Compound**: Borrowed assets
+- **MakerDAO**: DAI debt from vaults
+
+```typescript src/features/positions/types/index.ts
+type RainbowBorrow = {
+  poolAddress: string;
+  underlying: Asset[];
+  value: string;
+  dapp: Dapp;
+};
+```
+
+<Warning>
+Borrow positions show as negative values and reduce your total portfolio value.
+</Warning>
+
+### Rewards
+
+Claimable rewards from DeFi protocols:
+
+- **Liquidity mining**: Unclaimed LP rewards
+- **Staking rewards**: Accumulated staking yields
+- **Governance tokens**: Protocol incentives
+- **Yield farming**: Farm rewards
+
+```typescript src/features/positions/types/index.ts
+type RainbowReward = {
+  poolAddress: string;
+  underlying: Asset[];
+  value: string;
+  dapp: Dapp;
+  claimable: boolean;
+};
+```
+
+## Position Discovery
+
+Rainbow uses a backend service to discover positions:
+
+```typescript src/features/positions/stores/positionsStore.ts
+export const usePositionsStore = createQueryStore<
+  ListPositionsResponse,
+  PositionsParams,
+  PositionsState,
+  RainbowPositions
+>({
+  fetcher: fetchPositions,
+  transform: transformPositions,
+  params: {
+    address: $ => $(userAssetsStoreManager).address,
+    currency: $ => $(userAssetsStoreManager).currency,
+    chainIds: $ => $(useBackendNetworksStore, s =>
+      s.getSupportedPositionsChainIds()
+    ),
+  },
+  keepPreviousData: true,
+  cacheTime: time.days(2),
+  staleTime: time.minutes(10),
+});
+```
+
+<Steps>
+  <Step title="Monitor Address">
+    The backend monitors your address for DeFi protocol interactions across supported chains.
+  </Step>
+  
+  <Step title="Detect Protocols">
+    When you interact with a supported protocol, it's added to the monitoring list.
+  </Step>
+  
+  <Step title="Fetch Position Data">
+    Position details are fetched from protocol subgraphs and RPC calls.
+    
+    ```typescript src/features/positions/stores/fetcher.ts
+    export async function fetchPositions(
+      { address, currency, chainIds }: PositionsParams,
+      abortController: AbortController | null
+    ): Promise<ListPositionsResponse> {
+      // Fetch from backend API
+      const response = await rainbowFetch<ListPositionsResponse>(
+        `/positions?address=${address}&currency=${currency}&chains=${chainIds.join(',')}`,
+        { abortController }
+      );
+      return response.data;
+    }
+    ```
+  </Step>
+  
+  <Step title="Calculate Values">
+    Current USD values are calculated using real-time price feeds.
+  </Step>
+  
+  <Step title="Transform Data">
+    Raw position data is normalized and transformed for display.
+    
+    ```typescript src/features/positions/stores/transform/index.ts
+    export function transformPositions(
+      response: ListPositionsResponse
+    ): RainbowPositions {
+      const positions = filterPositions(response.positions);
+      const sorted = sortPositions(positions);
+      const totals = calculateTotals(sorted);
+      
+      return {
+        positions: sorted,
+        totals,
+      };
+    }
+    ```
+  </Step>
+</Steps>
+
+## Supported Protocols
+
+Rainbow tracks positions across major DeFi protocols:
+
+### Lending & Borrowing
+- Aave V2/V3
+- Compound V2/V3
+- Spark Protocol
+- Morpho
+- Euler
+
+### DEXs & AMMs
+- Uniswap V2/V3
+- Curve Finance
+- Balancer
+- SushiSwap
+- PancakeSwap
+
+### Staking
+- Lido
+- Rocket Pool
+- Frax Finance
+- StakeWise
+
+### Yield Aggregators
+- Yearn Finance
+- Beefy Finance
+- Convex Finance
+
+<Info>
+New protocols are regularly added. Check the backend networks configuration for the latest supported protocols.
+</Info>
+
+## Position Details
+
+Each position includes detailed information:
+
+### Dapp Information
+
+```typescript src/features/positions/types/generated/common/dapp.ts
+type Dapp = {
+  name: string;
+  icon_url: string;
+  colors: string[];
+  url: string;
+};
+```
+
+Displayed in position cards:
+- Protocol name and logo
+- Brand colors
+- Link to protocol website
+
+### Underlying Assets
+
+```typescript src/features/positions/types/generated/common/asset.ts
+type Asset = {
+  symbol: string;
+  name: string;
+  address: string;
+  decimals: number;
+  icon_url: string;
+  price: {
+    value: string;
+    display: string;
+  };
+  balance: string;
+  balanceDisplay: string;
+};
+```
+
+Shows:
+- Asset symbols and names
+- Individual balances
+- Current prices
+- Total value per asset
+
+## Position Filtering
+
+Positions are filtered to remove invalid entries:
+
+```typescript src/features/positions/stores/transform/filter.ts
+export function filterPositions(
+  positions: Record<string, RainbowPosition>
+): Record<string, RainbowPosition> {
+  return Object.entries(positions).reduce((acc, [dapp, position]) => {
+    const filtered = {
+      deposits: position.deposits.filter(isValidPosition),
+      pools: position.pools.filter(isValidPosition),
+      stakes: position.stakes.filter(isValidPosition),
+      borrows: position.borrows.filter(isValidPosition),
+      rewards: position.rewards.filter(isValidPosition),
+    };
+    
+    // Only include if at least one category has positions
+    if (Object.values(filtered).some(arr => arr.length > 0)) {
+      acc[dapp] = filtered;
+    }
+    
+    return acc;
+  }, {});
+}
+```
+
+Filters out:
+- Zero-balance positions
+- Invalid addresses
+- Dust amounts (< $0.01)
+- Positions with missing data
+
+## Position Sorting
+
+Positions are sorted by total value:
+
+```typescript src/features/positions/stores/transform/sort.ts
+export function sortPositions(
+  positions: Record<string, RainbowPosition>
+): Record<string, RainbowPosition> {
+  return Object.entries(positions)
+    .sort(([, a], [, b]) => {
+      const aValue = calculatePositionValue(a);
+      const bValue = calculatePositionValue(b);
+      return Number(bValue) - Number(aValue);
+    })
+    .reduce((acc, [dapp, position]) => {
+      acc[dapp] = position;
+      return acc;
+    }, {});
+}
+```
+
+Sorting order:
+1. Highest total value first
+2. Grouped by protocol
+3. Position types ordered: deposits → pools → stakes → borrows → rewards
+
+## Portfolio Totals
+
+Aggregated portfolio metrics:
+
+```typescript src/features/positions/stores/positionsStore.ts
+type PositionTotals = {
+  total: { amount: string; display: string };
+  totalLocked: { amount: string; display: string };
+  totalRewards: { amount: string; display: string };
+};
+```
+
+### Total Value
+
+Sum of all position values:
+- Deposits + pools + stakes + rewards
+- Minus borrows (debt)
+- Displayed in selected currency
+
+### Total Locked
+
+Value locked in protocols:
+- Includes vesting positions
+- Locked staking positions
+- Non-withdrawable assets
+
+### Available Balance
+
+```typescript src/features/positions/stores/positionsStore.ts
+getBalance: () => {
+  const data = get().getData();
+  if (!data) return '0';
+  // Returns available balance (total - locked)
+  const balance = subtract(
+    data.totals.total.amount,
+    data.totals.totalLocked.amount
+  );
+  return greaterThan(balance, '0') ? balance : '0';
+}
+```
+
+Calculation:
+```
+available = total - locked
+```
+
+<Note>
+The wallet balance in Rainbow shows only available funds, excluding locked positions.
+</Note>
+
+## LP Token Handling
+
+LP tokens are hidden from the main wallet view to prevent double-counting:
+
+```typescript src/features/positions/stores/positionsStore.ts
+getTokenAddresses: () => {
+  const positionTokenAddresses = new Set<string>();
+  const data = get().getData();
+
+  if (data?.positions) {
+    Object.values(data.positions).forEach((position: RainbowPosition) => {
+      position.deposits?.forEach((deposit: RainbowDeposit) => {
+        if (deposit.poolAddress) {
+          positionTokenAddresses.add(deposit.poolAddress.toLowerCase());
+        }
+      });
+      position.pools?.forEach((pool: RainbowPool) => {
+        if (pool.poolAddress) {
+          positionTokenAddresses.add(pool.poolAddress.toLowerCase());
+        }
+      });
+      // ... stakes, borrows, rewards
+    });
+  }
+
+  return positionTokenAddresses;
+}
+```
+
+When you have a position:
+1. The position value is shown in the positions section
+2. The underlying LP token is hidden from wallet assets
+3. This prevents counting the same value twice
+
+## Hydration Retry
+
+The backend lazy-loads position data:
+
+```typescript src/features/positions/stores/positionsStore.ts
+const hydrationRetry = new Map<string, NodeJS.Timeout | null>();
+
+onFetched: ({ data, fetch, params }) => {
+  const address = params.address?.toLowerCase();
+  if (!address) return;
+
+  const retry = hydrationRetry.get(address);
+  if (retry) clearTimeout(retry);
+
+  const hasPositions = data?.positions &&
+    Object.keys(data.positions).length > 0;
+
+  if (hasPositions) {
+    hydrationRetry.delete(address);
+  } else if (retry === undefined) {
+    // First fetch returned empty, retry in 1 minute
+    hydrationRetry.set(
+      address,
+      setTimeout(() => fetch(undefined, { force: true }), time.minutes(1))
+    );
+  } else {
+    // Second fetch also empty, stop retrying
+    hydrationRetry.set(address, null);
+  }
+}
+```
+
+Retry logic:
+1. First fetch often returns empty (backend indexing)
+2. Retry after 1 minute
+3. Stop after second attempt
+4. Clear retry on successful fetch
+
+## Uniswap V3 Positions
+
+Concentrated liquidity positions include range information:
+
+```typescript src/features/positions/stores/transform/utils/lp.ts
+type UniswapV3Position = {
+  poolAddress: string;
+  underlying: Asset[];
+  value: string;
+  dapp: Dapp;
+  inRange: boolean;          // Is current price in range?
+  priceRange: {
+    min: string;             // Lower tick
+    max: string;             // Upper tick
+  };
+};
+```
+
+Range badges:
+- **In Range**: Green badge, earning fees
+- **Out of Range**: Red badge, not earning fees
+
+## Performance Tracking
+
+Positions analytics:
+
+```typescript src/features/positions/stores/positionsStore.ts
+const throttledPositionsAnalytics = throttle(
+  (params: PositionsParams) => {
+    const positions = usePositionsStore.getState().getData(params);
+    if (!positions) return;
+
+    const {
+      positionsAmount,
+      positionsRewardsAmount,
+      positionsAssetsAmount,
+    } = Object.values(positions.positions).reduce(
+      (acc, position) => {
+        ['deposits', 'pools', 'stakes', 'borrows', 'rewards'].forEach(
+          category => {
+            acc.positionsAmount += position[category].length;
+            if (category === 'rewards')
+              acc.positionsRewardsAmount += position[category].length;
+            position[category].forEach(item =>
+              (acc.positionsAssetsAmount += item.underlying.length)
+            );
+          }
+        );
+        return acc;
+      },
+      { positionsAmount: 0, positionsRewardsAmount: 0, positionsAssetsAmount: 0 }
+    );
+
+    analytics.identify({
+      positionsAmount,
+      positionsUSDValue: Number(positions.totals.total.amount),
+      positionsAssetsAmount,
+      positionsDappsAmount: Object.keys(positions.positions).length,
+      positionsRewardsAmount,
+      positionsRewardsUSDValue: Number(positions.totals.totalRewards.amount),
+    });
+  },
+  time.days(1),  // Throttled to once per day
+  { trailing: false }
+);
+```
+
+Tracked daily:
+- Total positions count
+- USD value
+- Number of unique assets
+- Number of protocols used
+- Claimable rewards count and value

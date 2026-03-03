@@ -1,0 +1,351 @@
+---
+title: Typography System
+description: Text rendering with precise typography control and cross-platform consistency
+---
+
+Rainbow's typography system provides precise control over text rendering with consistent sizing, spacing, and alignment across iOS, Android, and Web.
+
+## Text Component
+
+The primary text component with full typography control.
+
+### Props
+
+<ParamField path="size" type="TextSize" required>
+  Text size using design system tokens (e.g., "15pt", "17pt", "20pt")
+</ParamField>
+
+<ParamField path="weight" type="TextWeight">
+  Font weight: "regular" | "medium" | "semibold" | "bold" | "heavy" | "black"
+</ParamField>
+
+<ParamField path="color" type="TextColor | CustomColor" required>
+  Text color using semantic tokens or custom color
+</ParamField>
+
+<ParamField path="align" type="'left' | 'center' | 'right'">
+  Text alignment
+</ParamField>
+
+<ParamField path="numberOfLines" type="number">
+  Maximum number of lines to display
+</ParamField>
+
+<ParamField path="ellipsizeMode" type="'head' | 'middle' | 'tail' | 'clip'">
+  How to truncate text when it exceeds numberOfLines
+</ParamField>
+
+<ParamField path="uppercase" type="boolean">
+  Transform text to uppercase
+</ParamField>
+
+<ParamField path="tabularNumbers" type="boolean">
+  Use tabular (monospaced) number rendering
+</ParamField>
+
+<ParamField path="containsEmoji" type="boolean">
+  Set to true if text contains emoji for proper vertical alignment on iOS
+</ParamField>
+
+<ParamField path="onPress" type="() => void">
+  Press handler for interactive text
+</ParamField>
+
+### Usage
+
+```typescript
+import { Text } from '@/design-system';
+
+function Example() {
+  return (
+    <Text 
+      size="17pt" 
+      weight="semibold" 
+      color="label"
+      numberOfLines={2}
+    >
+      Rainbow Wallet
+    </Text>
+  );
+}
+```
+
+### With Emoji
+
+When rendering text with emoji, set `containsEmoji={true}` for proper vertical alignment:
+
+```typescript
+<Text 
+  size="20pt" 
+  weight="bold" 
+  color="label"
+  containsEmoji
+>
+  🌈 Rainbow Wallet
+</Text>
+```
+
+### Interactive Text
+
+```typescript
+<Text 
+  size="15pt" 
+  weight="medium" 
+  color="blue"
+  onPress={() => console.log('Pressed!')}
+>
+  Tap me
+</Text>
+```
+
+## Text Sizes
+
+Rainbow uses point-based sizing for consistent cross-platform typography:
+
+### Standard Sizes
+
+```typescript
+type TextSize = 
+  | "10pt" | "11pt" | "12pt" | "13pt" | "15pt" 
+  | "17pt" | "20pt" | "22pt" | "26pt" | "30pt" 
+  | "34pt" | "44pt" | "54pt" | "64pt";
+```
+
+### Line Height Variations
+
+Some sizes have alternate line heights:
+
+```typescript
+"13pt / 135%" // 13pt with 135% line height
+"13pt / 150%" // 13pt with 150% line height
+"15pt / 135%"
+"15pt / 150%"
+"17pt / 135%"
+"17pt / 150%"
+"20pt / 135%"
+"20pt / 150%"
+```
+
+### Icon Sizes
+
+Special sizes for icon text:
+
+```typescript
+"icon 8px" | "icon 9px" | "icon 10px" | "icon 11px" 
+| "icon 12px" | "icon 13px" | "icon 14px" | "icon 15px"
+| "icon 16px" | "icon 17px" | "icon 18px" | "icon 19px"
+| "icon 20px" | "icon 21px" | "icon 23px" | "icon 26px"
+| "icon 28px" | "icon 34px"
+```
+
+### Usage Examples
+
+```typescript
+// Large heading
+<Text size="34pt" weight="bold" color="label">
+  Welcome
+</Text>
+
+// Body text with increased line height
+<Text size="15pt / 150%" weight="regular" color="label">
+  This text has more breathing room between lines.
+</Text>
+
+// Small caption
+<Text size="11pt" weight="medium" color="labelTertiary">
+  Updated 2 hours ago
+</Text>
+```
+
+## Font Weights
+
+Rainbow uses SF Pro Rounded with six weight variants:
+
+<ParamField path="regular" type="FontWeight">
+  Regular weight (400)
+</ParamField>
+
+<ParamField path="medium" type="FontWeight">
+  Medium weight (500)
+</ParamField>
+
+<ParamField path="semibold" type="FontWeight">
+  Semibold weight (600)
+</ParamField>
+
+<ParamField path="bold" type="FontWeight">
+  Bold weight (700)
+</ParamField>
+
+<ParamField path="heavy" type="FontWeight">
+  Heavy weight (800)
+</ParamField>
+
+<ParamField path="black" type="FontWeight">
+  Black weight (900)
+</ParamField>
+
+### Weight Comparison
+
+```typescript
+<Stack space="12px">
+  <Text size="17pt" weight="regular" color="label">Regular</Text>
+  <Text size="17pt" weight="medium" color="label">Medium</Text>
+  <Text size="17pt" weight="semibold" color="label">Semibold</Text>
+  <Text size="17pt" weight="bold" color="label">Bold</Text>
+  <Text size="17pt" weight="heavy" color="label">Heavy</Text>
+  <Text size="17pt" weight="black" color="label">Black</Text>
+</Stack>
+```
+
+## Color Tokens
+
+Semantic color tokens for text:
+
+```typescript
+type TextColor = 
+  | "label"              // Primary text
+  | "labelSecondary"     // Secondary text
+  | "labelTertiary"      // Tertiary text
+  | "labelQuaternary"    // Quaternary text
+  | "blue"               // Accent blue
+  | "green"              // Success green
+  | "red"                // Error red
+  | "orange"             // Warning orange
+  | "yellow"             // Highlight yellow
+  | "pink"               // Accent pink
+  | "purple"             // Accent purple;
+```
+
+### Custom Colors
+
+```typescript
+<Text 
+  size="15pt" 
+  weight="medium" 
+  color={{ custom: '#FF6B6B' }}
+>
+  Custom colored text
+</Text>
+```
+
+## Typography Implementation
+
+The typography system uses Capsize for precise vertical alignment:
+
+### Font Metrics
+
+```typescript
+export const fontMetrics = {
+  capHeight: 1443,
+  ascent: 1950,
+  descent: -494,
+  lineGap: 0,
+  unitsPerEm: 2048,
+} as const;
+```
+
+### Platform-Specific Corrections
+
+Each text size includes margin corrections for iOS and Android to ensure consistent vertical alignment:
+
+```typescript
+{
+  fontSize: 17,
+  letterSpacing: 0.37,
+  lineHeight: 22,
+  marginCorrection: {
+    android: 0,
+    ios: -0.3,
+  }
+}
+```
+
+## Heading Component (Deprecated)
+
+The `Heading` component is deprecated. Use `Text` instead:
+
+```typescript
+// ❌ Old way
+<Heading size="26px / 30px (Deprecated)" weight="bold" color="label">
+  Title
+</Heading>
+
+// ✅ New way
+<Text size="26pt" weight="bold" color="label">
+  Title
+</Text>
+```
+
+## Best Practices
+
+### 1. Use Semantic Sizes
+
+Prefer semantic sizes over deprecated pixel sizes:
+
+```typescript
+// ✅ Good
+<Text size="17pt" weight="semibold" color="label">
+
+// ❌ Avoid
+<Text size="18px / 27px (Deprecated)" weight="semibold" color="label">
+```
+
+### 2. Set containsEmoji for Emoji
+
+Always set `containsEmoji={true}` when rendering emoji:
+
+```typescript
+// ✅ Good
+<Text size="15pt" weight="regular" color="label" containsEmoji>
+  🎉 Celebration!
+</Text>
+
+// ❌ Will have alignment issues on iOS
+<Text size="15pt" weight="regular" color="label">
+  🎉 Celebration!
+</Text>
+```
+
+### 3. Use Semantic Colors
+
+Prefer semantic color tokens over custom colors:
+
+```typescript
+// ✅ Good - adapts to dark mode
+<Text size="15pt" weight="regular" color="label">
+
+// ❌ Avoid - doesn't adapt to dark mode
+<Text size="15pt" weight="regular" color={{ custom: '#000000' }}>
+```
+
+### 4. Consistent Typography Scale
+
+Use a limited set of sizes for visual hierarchy:
+
+```typescript
+// Common scale
+"11pt"  // Small text, captions
+"13pt"  // Secondary text
+"15pt"  // Body text
+"17pt"  // Emphasized body text
+"20pt"  // Small headings
+"26pt"  // Medium headings  
+"34pt"  // Large headings
+```
+
+## SF Mono (Monospace)
+
+For code and tabular data:
+
+```typescript
+<Text 
+  size="13pt" 
+  weight="medium" 
+  color="label"
+  tabularNumbers
+  style={{ fontFamily: 'SF Mono' }}
+>
+  0x1234...5678
+</Text>
+```

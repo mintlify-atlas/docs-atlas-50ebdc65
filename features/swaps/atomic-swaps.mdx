@@ -1,0 +1,554 @@
+---
+title: Atomic Swaps
+description: Advanced atomic swap features and optimizations in Rainbow
+---
+
+Rainbow supports atomic swaps - trustless, non-custodial token exchanges that execute completely or not at all.
+
+## What are Atomic Swaps?
+
+<Info>
+  **Atomic Swaps** are smart contract-based token exchanges that guarantee both parties receive their tokens or the transaction is completely reverted.
+</Info>
+
+### Key Properties
+
+- **All-or-Nothing**: Swap completes fully or reverts entirely
+- **Trustless**: No intermediary custody of funds
+- **Non-Custodial**: You always control your keys
+- **On-Chain**: Executed via smart contracts
+- **Instant Settlement**: No waiting periods (on same chain)
+
+### Atomic Guarantee
+
+```solidity
+// Pseudocode of atomic swap
+function atomicSwap(
+  address tokenA,
+  address tokenB,
+  uint256 amountA,
+  uint256 amountB
+) external {
+  // EITHER both transfers succeed
+  require(transferFrom(msg.sender, counterparty, tokenA, amountA));
+  require(transferFrom(counterparty, msg.sender, tokenB, amountB));
+  
+  // OR entire transaction reverts
+  // No possibility of one-sided transfer
+}
+```
+
+## Atomic Swap Feature Flag
+
+Rainbow has an experimental atomic swaps feature:
+
+```typescript
+// From src/config/experimentalConfig.ts
+import { ATOMIC_SWAPS, getExperimentalFlag } from '@/config';
+
+// Check if atomic swaps enabled
+const atomicSwapsEnabled = getExperimentalFlag(ATOMIC_SWAPS);
+
+if (atomicSwapsEnabled) {
+  // Use atomic swap execution path
+  await executeAtomicSwap(swapParams);
+} else {
+  // Use standard swap execution
+  await executeStandardSwap(swapParams);
+}
+```
+
+<Note>
+  Atomic swaps are currently an experimental feature in Rainbow. Enable in Settings > Advanced > Experimental Features.
+</Note>
+
+## How Atomic Swaps Work
+
+### Single Transaction Execution
+
+<Steps>
+  <Step title="Prepare Swap Data">
+    Bundle all operations:
+    - Token approval (if needed)
+    - Swap execution
+    - Slippage protection
+    - Recipient verification
+  </Step>
+  
+  <Step title="Smart Contract Call">
+    Single contract interaction:
+    ```typescript
+    const atomicSwapTx = await swapContract.swap({
+      tokenIn: inputToken.address,
+      tokenOut: outputToken.address,
+      amountIn: sellAmount,
+      minAmountOut: minimumReceived,
+      recipient: userAddress,
+      deadline: currentTime + 1200, // 20 minutes
+    });
+    ```
+  </Step>
+  
+  <Step title="Atomic Execution">
+    Contract executes atomically:
+    - Validates input amount
+    - Executes swap through DEX
+    - Verifies output meets minimum
+    - Transfers output to recipient
+    - **All steps succeed or all revert**
+  </Step>
+  
+  <Step title="Settlement">
+    Transaction confirmed:
+    - Input tokens debited from wallet
+    - Output tokens credited to wallet
+    - No intermediate state possible
+    - Cannot partially execute
+  </Step>
+</Steps>
+
+## Atomic Swap vs Standard Swap
+
+<Tabs>
+  <Tab title="Atomic Swap">
+    **Single Transaction**
+    
+    Advantages:
+    - Guaranteed atomicity
+    - Lower gas (one transaction)
+    - Faster execution
+    - No approval + swap delay
+    - MEV protection inherent
+    
+    Disadvantages:
+    - Requires contract support
+    - Less flexibility
+    - May need higher gas limit
+  </Tab>
+  
+  <Tab title="Standard Swap">
+    **Two Transactions**
+    
+    Advantages:
+    - Universal compatibility
+    - More DEX options
+    - Granular control
+    - Can reuse approvals
+    
+    Disadvantages:
+    - Two transactions needed
+    - Higher total gas
+    - Time between approval & swap
+    - MEV vulnerability window
+  </Tab>
+</Tabs>
+
+## Slippage Protection
+
+Atomic swaps enforce slippage limits:
+
+```typescript
+// Calculate minimum acceptable output
+const minimumReceived = useDerivedValue(() => {
+  if (!quote.value) return null;
+  
+  const { buyAmount } = quote.value;
+  const slippageBips = swapSettings.slippage;
+  
+  // Subtract slippage tolerance
+  const slippageMultiplier = divWorklet(
+    subWorklet(10000, slippageBips),
+    10000
+  );
+  
+  return mulWorklet(buyAmount, slippageMultiplier);
+});
+
+// Swap will revert if actual output < minimum
+if (actualOutput < minimumReceived) {
+  revert("Slippage tolerance exceeded");
+}
+```
+
+### Slippage Scenarios
+
+<AccordionGroup>
+  <Accordion title="Within Tolerance">
+    **Scenario**: Price moved 2%, slippage set to 5%
+    
+    Result:
+    - Swap executes successfully
+    - User receives slightly less than quoted
+    - Still within acceptable range
+    - Transaction confirms
+  </Accordion>
+  
+  <Accordion title="Exceeds Tolerance">
+    **Scenario**: Price moved 7%, slippage set to 5%
+    
+    Result:
+    - Swap would give too little output
+    - Contract enforces minimum
+    - **Entire transaction reverts**
+    - User keeps original tokens
+    - Gas still consumed (failed tx)
+  </Accordion>
+  
+  <Accordion title="Price Improved">
+    **Scenario**: Price moved favorably by 3%
+    
+    Result:
+    - User receives more than quoted
+    - No upper limit on positive slippage
+    - Full benefit goes to user
+    - Transaction succeeds
+  </Accordion>
+</AccordionGroup>
+
+## Deadline Protection
+
+Swaps include deadline to prevent stale execution:
+
+```typescript
+const SWAP_DEADLINE_MINUTES = 20;
+
+const deadline = Math.floor(Date.now() / 1000) + (SWAP_DEADLINE_MINUTES * 60);
+
+const swapParams = {
+  // ... other params
+  deadline, // Unix timestamp
+};
+
+// In smart contract:
+require(block.timestamp <= deadline, "Transaction too old");
+```
+
+Prevents:
+- Execution at stale prices
+- MEV attacks from delaying transaction
+- Execution in different market conditions
+- Unfavorable price movement impact
+
+<Warning>
+  If your transaction is pending longer than 20 minutes, it will fail. You'll need to submit a new swap with updated quote and deadline.
+</Warning>
+
+## MEV Protection
+
+Atomic swaps have built-in MEV resistance:
+
+### How MEV Affects Swaps
+
+**Sandwich Attack**:
+1. MEV bot sees your pending swap
+2. Bot front-runs: Buys token before you
+3. Price increases
+4. Your swap executes at worse price
+5. Bot back-runs: Sells token
+6. Bot profits, you lose
+
+### Atomic Swap Protection
+
+```typescript
+// Atomic swap parameters include:
+{
+  minAmountOut: calculatedWithSlippage,
+  deadline: currentTime + 1200,
+  recipient: userAddress, // Verified
+}
+
+// Contract enforces:
+// 1. Minimum output amount (slippage protection)
+// 2. Deadline (prevents delayed execution)
+// 3. Recipient verification (prevents redirection)
+// 4. Single transaction (no front-run window)
+```
+
+Protections:
+- **Slippage limit**: Bot can't profit beyond tolerance
+- **Deadline**: Limits time window for manipulation
+- **Atomic execution**: No approval + swap gap
+- **Single transaction**: Reduced attack surface
+
+## Cross-Chain Atomic Swaps
+
+Cross-chain atomicity is more complex:
+
+### Hash Time-Locked Contracts (HTLCs)
+
+```typescript
+interface HTLC {
+  hashlock: bytes32;      // Hash of secret
+  timelock: uint256;      // Expiration time
+  sender: address;        // Initiator
+  receiver: address;      // Counterparty
+  amount: uint256;        // Token amount
+  tokenAddress: address;  // Token contract
+}
+
+// Cross-chain atomic swap process:
+// 1. Alice locks tokens on Chain A with hashlock H
+// 2. Bob locks tokens on Chain B with same hashlock H
+// 3. Alice reveals secret, claims Bob's tokens on Chain B
+// 4. Bob uses same secret to claim Alice's tokens on Chain A
+// 5. If timelock expires, both parties can reclaim
+```
+
+### Cross-Chain Challenges
+
+- **Different block times**: Chains confirm at different speeds
+- **Timelock coordination**: Must account for both chains
+- **Failure modes**: One chain succeeds, other fails
+- **Gas on both chains**: Need native tokens on both
+
+<Note>
+  True cross-chain atomic swaps are rare in practice. Most "cross-chain swaps" in Rainbow use trusted bridge protocols, which are not atomic in the strict sense.
+</Note>
+
+## Swap Execution Flow
+
+Detailed atomic swap execution:
+
+```typescript
+// From src/__swaps__/screens/Swap/providers/swap-provider.tsx
+const executeSwap = async () => {
+  const { inputAsset, outputAsset, quote } = swapState;
+  
+  // 1. Validate swap can execute
+  if (!quote || isQuoteError(quote)) {
+    throw new Error('No valid quote');
+  }
+  
+  // 2. Check atomic swap support
+  const atomicEnabled = getExperimentalFlag(ATOMIC_SWAPS);
+  
+  if (atomicEnabled && supportsAtomicSwap(inputAsset, outputAsset)) {
+    // 3a. Execute atomic swap (single transaction)
+    await executeAtomicSwapTransaction({
+      quote,
+      inputAsset,
+      outputAsset,
+      minOutput: calculateMinimumOutput(quote, slippage),
+      deadline: currentTimestamp() + SWAP_DEADLINE,
+    });
+  } else {
+    // 3b. Execute standard swap (approval + swap)
+    if (requiresApproval(inputAsset, quote)) {
+      await approveToken(inputAsset, quote.allowanceTarget, quote.sellAmount);
+    }
+    
+    await executeSwapTransaction(quote);
+  }
+  
+  // 4. Track completion
+  trackSwapEvent({ type: 'swap', success: true });
+};
+```
+
+## Gas Optimization
+
+Atomic swaps can save gas:
+
+### Gas Comparison
+
+```typescript
+// Standard swap (2 transactions)
+const approvalGas = 45000;  // ERC-20 approve
+const swapGas = 150000;     // Swap execution
+const totalGas = 195000;    // Total
+
+// Atomic swap (1 transaction)  
+const atomicGas = 175000;   // Combined operation
+
+// Savings
+const gasSaved = totalGas - atomicGas; // 20000 units
+const percentSaved = (gasSaved / totalGas) * 100; // ~10%
+```
+
+Additional benefits:
+- Only one transaction fee
+- No approval transaction overhead
+- Optimized contract call
+- Batch operations
+
+## Safety Features
+
+### Pre-Flight Checks
+
+```typescript
+const validateSwap = async (params: SwapParams) => {
+  // Check balances
+  if (userBalance < params.sellAmount) {
+    throw new Error('Insufficient balance');
+  }
+  
+  // Validate slippage
+  if (params.slippage > MAX_SLIPPAGE_BIPS) {
+    warn('High slippage tolerance');
+  }
+  
+  // Check deadline
+  if (params.deadline < currentTimestamp()) {
+    throw new Error('Deadline in past');
+  }
+  
+  // Verify recipient
+  if (params.recipient.toLowerCase() !== userAddress.toLowerCase()) {
+    throw new Error('Recipient mismatch');
+  }
+  
+  // Estimate gas
+  const gasEstimate = await estimateGas(params);
+  if (gasEstimate > GAS_LIMIT_MAX) {
+    throw new Error('Gas estimate too high');
+  }
+};
+```
+
+### Revert Protection
+
+```typescript
+// Contract includes multiple revert conditions
+function atomicSwap(SwapParams memory params) external {
+  // Time check
+  require(block.timestamp <= params.deadline, "Deadline passed");
+  
+  // Balance check
+  require(
+    IERC20(params.tokenIn).balanceOf(msg.sender) >= params.amountIn,
+    "Insufficient balance"
+  );
+  
+  // Allowance check
+  require(
+    IERC20(params.tokenIn).allowance(msg.sender, address(this)) >= params.amountIn,
+    "Insufficient allowance"
+  );
+  
+  // Execute swap
+  uint256 amountOut = _executeSwap(params);
+  
+  // Slippage check
+  require(amountOut >= params.minAmountOut, "Slippage exceeded");
+  
+  // Transfer output
+  require(
+    IERC20(params.tokenOut).transfer(params.recipient, amountOut),
+    "Transfer failed"
+  );
+}
+```
+
+## Limitations
+
+Atomic swaps have constraints:
+
+<Warning>
+  **Current Limitations:**
+</Warning>
+
+- **Not all DEXs support**: Requires specific contract interface
+- **Single liquidity source**: Can't split across multiple DEXs
+- **Higher initial gas**: More complex single transaction
+- **Less common**: Standard swaps more widely supported
+- **Experimental**: Feature still in testing phase
+
+## Enabling Atomic Swaps
+
+<Steps>
+  <Step title="Access Settings">
+    Navigate to Settings > Advanced
+  </Step>
+  
+  <Step title="Enable Feature Flag">
+    Toggle "Experimental Features" > "Atomic Swaps"
+  </Step>
+  
+  <Step title="Understand Risks">
+    Read warning about experimental feature:
+    - May have bugs
+    - Limited DEX support  
+    - Higher gas if estimate wrong
+    - Can revert to standard swaps
+  </Step>
+  
+  <Step title="Confirm Enable">
+    Accept risks and enable
+  </Step>
+  
+  <Step title="Use Atomic Swaps">
+    Swaps will use atomic execution when:
+    - Feature enabled
+    - Both tokens supported
+    - DEX supports atomic interface
+    - Otherwise falls back to standard
+  </Step>
+</Steps>
+
+<Note>
+  You can disable atomic swaps anytime. Existing pending swaps will complete with the method they started with.
+</Note>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Start with Small Amounts">
+    When first using atomic swaps:
+    - Test with small value
+    - Verify execution works
+    - Check gas costs
+    - Confirm output received
+    - Scale up after success
+  </Accordion>
+  
+  <Accordion title="Monitor Gas Estimates">
+    Atomic swaps gas:
+    - Check estimate before confirming
+    - Compare to standard swap
+    - Ensure sufficient balance for gas
+    - Account for gas price volatility
+  </Accordion>
+  
+  <Accordion title="Set Appropriate Slippage">
+    Slippage for atomic swaps:
+    - Can't adjust after submission
+    - Set higher for volatile tokens
+    - Too low = likely to revert
+    - Too high = worse execution
+    - 2-5% typical for most pairs
+  </Accordion>
+  
+  <Accordion title="Verify Token Contracts">
+    Before atomic swap:
+    - Confirm token addresses
+    - Check both tokens are legitimate
+    - Verify you're on correct chain
+    - No recovery if sent to wrong token
+  </Accordion>
+</AccordionGroup>
+
+## Future Enhancements
+
+Planned improvements:
+
+- **Multi-DEX atomic swaps**: Split across sources atomically
+- **Better gas estimates**: More accurate predictions
+- **Wider DEX support**: More liquidity sources
+- **Cross-chain HTLCs**: True atomic cross-chain swaps
+- **Batched operations**: Multiple swaps in one transaction
+
+## Related Features
+
+<CardGroup cols={2}>
+  <Card title="Swaps Overview" icon="arrow-right-arrow-left" href="/features/swaps/overview">
+    Complete swap functionality
+  </Card>
+  
+  <Card title="Quote Fetching" icon="magnifying-glass-dollar" href="/features/swaps/quote-fetching">
+    How quotes are obtained
+  </Card>
+  
+  <Card title="Gas Estimation" icon="gauge-high" href="/features/swaps/gas-estimation">
+    Gas calculation details
+  </Card>
+</CardGroup>

@@ -1,0 +1,324 @@
+---
+title: Project Structure
+description: Detailed directory structure and file organization in Rainbow Wallet
+---
+
+Rainbow's codebase is organized with a mix of legacy flat structure and modern domain-based organization.
+
+## Root Structure
+
+```
+rainbow/
+├── src/                    # Source code
+├── android/                # Android native code
+├── ios/                    # iOS native code
+├── e2e/                    # End-to-end tests
+├── scripts/                # Build and utility scripts
+└── package.json
+```
+
+## Source Directory Layout
+
+### Top-Level Directories
+
+<Tabs>
+  <Tab title="Features & Domains">
+    ```
+    src/
+    ├── features/           # Domain-organized features (NEW)
+    │   ├── app-icon/
+    │   ├── charts/
+    │   ├── notifications/
+    │   ├── perps/          # Perpetuals trading
+    │   ├── polymarket/     # Prediction markets
+    │   ├── positions/      # Portfolio positions
+    │   └── rnbw-rewards/   # Rewards system
+    ├── __swaps__/          # Swap feature (@/swaps alias)
+    └── state/              # Zustand stores by domain
+    ```
+  </Tab>
+  
+  <Tab title="Infrastructure">
+    ```
+    src/
+    ├── framework/          # App-agnostic infrastructure
+    │   ├── http/
+    │   ├── math/
+    │   └── primitives/
+    ├── storage/            # MMKV storage layer
+    ├── logger/             # Logging system
+    ├── analytics/          # Event tracking
+    ├── navigation/         # Navigation system
+    └── keychain/           # Secure storage
+    ```
+  </Tab>
+  
+  <Tab title="Legacy">
+    ```
+    src/
+    ├── components/         # UI components (LEGACY)
+    ├── screens/            # Screen components (LEGACY)
+    ├── hooks/              # React hooks
+    ├── helpers/            # Utility functions
+    ├── utils/              # General utilities
+    ├── redux/              # Redux stores (LEGACY)
+    └── react-query/        # React Query hooks (LEGACY)
+    ```
+  </Tab>
+</Tabs>
+
+## Feature Directory Structure
+
+New features follow a consistent structure:
+
+```
+features/<feature-name>/
+├── components/         # or ui/
+│   ├── FeatureCard.tsx
+│   └── FeatureList.tsx
+├── screens/
+│   └── FeatureScreen.tsx
+├── stores/            # or data/
+│   └── featureStore.ts
+├── hooks/
+│   └── useFeatureData.ts
+├── utils/
+│   └── helpers.ts
+└── types/
+    └── index.ts
+```
+
+### Example: Perps Feature
+
+```
+features/perps/
+├── components/
+│   ├── PositionCard.tsx
+│   ├── OrderForm.tsx
+│   └── PriceChart.tsx
+├── screens/
+│   ├── PerpsAccountScreen.tsx
+│   └── PerpsTradeScreen.tsx
+├── stores/
+│   ├── perpsAccountStore.ts
+│   └── perpsPositionsStore.ts
+├── hooks/
+│   ├── usePerpsAccount.ts
+│   └── usePerpsPositions.ts
+├── services/
+│   └── perpsApi.ts
+├── utils/
+│   ├── calculations.ts
+│   └── formatting.ts
+└── charts-plugin/
+    └── indicators.ts
+```
+
+## State Directory Structure
+
+State stores are organized by domain:
+
+```
+state/
+├── internal/                 # Store creators
+│   ├── createRainbowStore.ts
+│   ├── createQueryStore.ts
+│   ├── createDerivedStore.ts
+│   └── types.ts
+├── wallets/
+│   ├── walletsStore.ts
+│   ├── useWalletSummaryStore.ts
+│   └── pinnedWalletsStore.ts
+├── swaps/
+│   └── swapsStore.ts
+├── nfts/
+│   ├── createNftsStore.ts
+│   └── openCollectionsStore.ts
+├── navigation/
+│   └── navigationStore.ts
+├── browser/
+│   ├── browserStore.ts
+│   └── favoriteDappsStore.ts
+└── claimables/
+    └── airdropsStore.ts
+```
+
+## Navigation Structure
+
+```
+navigation/
+├── Navigation.tsx           # Core navigation logic
+├── routesNames.ts          # Route constants
+├── types.ts                # Navigation types
+├── bottom-sheet/           # Bottom sheet navigator
+│   ├── index.ts
+│   ├── router.ts
+│   ├── actions.ts
+│   └── hooks/
+│       └── useBottomSheetNavigator.ts
+├── createVirtualNavigator.ts
+└── virtualNavigators.ts
+```
+
+## Storage Structure
+
+```
+storage/
+├── index.ts                # Storage instances
+├── schema.ts               # Type definitions
+└── legacy.ts               # Legacy storage migration
+```
+
+## Analytics Structure
+
+```
+analytics/
+├── index.ts                # Analytics class
+├── event.ts                # Event definitions
+├── userProperties.ts       # User property types
+├── getWalletContext.ts     # Wallet context helper
+└── utils.ts                # Analytics utilities
+```
+
+## Logger Structure
+
+```
+logger/
+├── index.ts                # Logger class
+├── sentry.ts               # Sentry integration
+├── logDump.ts              # In-memory log buffer
+└── debugContext.ts         # Debug context filtering
+```
+
+## Import Aliases
+
+Rainbow uses TypeScript path aliases for cleaner imports:
+
+```json
+{
+  "@/*": ["src/*"],
+  "@/swaps": ["src/__swaps__"],
+  "@/state": ["src/state"],
+  "@/features": ["src/features"]
+}
+```
+
+### Usage
+
+```typescript
+// Instead of:
+import { logger } from '../../../logger';
+
+// Use:
+import { logger } from '@/logger';
+```
+
+## File Naming Conventions
+
+<CodeGroup>
+
+```typescript Component Files
+// Components use PascalCase
+MyComponent.tsx
+UserProfile.tsx
+TokenList.tsx
+```
+
+```typescript Store Files
+// Stores use camelCase with "Store" suffix
+walletsStore.ts
+swapsStore.ts
+navigationStore.ts
+```
+
+```typescript Hook Files
+// Hooks use camelCase with "use" prefix
+useWalletData.ts
+useTokenPrice.ts
+useNavigation.ts
+```
+
+```typescript Utility Files
+// Utilities use camelCase
+formatting.ts
+validation.ts
+calculations.ts
+```
+
+</CodeGroup>
+
+## Migration Patterns
+
+### From Legacy to Domain Organization
+
+<Steps>
+  <Step title="Identify Domain">
+    Determine which domain/feature the code belongs to (e.g., `perps`, `polymarket`, `positions`)
+  </Step>
+  
+  <Step title="Create Feature Directory">
+    Create a new directory under `src/features/<feature-name>/`
+  </Step>
+  
+  <Step title="Organize by Layer">
+    Move files into appropriate subdirectories:
+    - UI components → `components/` or `ui/`
+    - State stores → `stores/` or `data/`
+    - Utilities → `utils/`
+    - Types → `types/`
+  </Step>
+  
+  <Step title="Update Imports">
+    Update all import paths to use the new structure
+  </Step>
+</Steps>
+
+### Example Migration
+
+```typescript Before
+// src/components/PerpsPositionCard.tsx
+import { formatCurrency } from '@/helpers/utilities';
+import { usePerpsData } from '@/hooks/usePerpsData';
+```
+
+```typescript After
+// src/features/perps/components/PositionCard.tsx
+import { formatCurrency } from '@/features/perps/utils/formatting';
+import { usePerpsData } from '@/features/perps/hooks/usePerpsData';
+```
+
+## Key Files to Know
+
+<AccordionGroup>
+  <Accordion title="src/App.tsx">
+    Root application component that sets up providers and navigation
+  </Accordion>
+  
+  <Accordion title="src/env.ts">
+    Environment detection and feature flags:
+    - `IS_DEV` - Development mode
+    - `IS_PROD` - Production mode
+    - `IS_TEST` - Test environment
+    - `IS_IOS` - iOS platform
+    - `IS_ANDROID` - Android platform
+  </Accordion>
+  
+  <Accordion title="src/navigation/routesNames.ts">
+    Central registry of all navigation routes
+  </Accordion>
+  
+  <Accordion title="src/state/internal/types.ts">
+    TypeScript types for store creators
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="State Management" icon="database" href="/architecture/state/overview">
+    Learn about Rainbow's state management patterns
+  </Card>
+  <Card title="Navigation System" icon="map" href="/architecture/navigation">
+    Understand the navigation architecture
+  </Card>
+</CardGroup>
