@@ -1,0 +1,203 @@
+{
+  "projectType": "saas",
+  "projectName": "Rainbow Wallet",
+  "projectDescription": "A beautiful Ethereum wallet for iOS and Android that lives in your pocket",
+  "theme": "almond",
+  "primaryColor": "#7A6EF0",
+  "lightColor": "#A69EF8",
+  "darkColor": "#5643CC",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Getting Started",
+        "groups": [
+          {
+            "group": "Introduction",
+            "pages": [
+              "introduction",
+              "features"
+            ]
+          },
+          {
+            "group": "Setup",
+            "pages": [
+              "setup/prerequisites",
+              "setup/installation",
+              "setup/ios",
+              "setup/android"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "development/running",
+              "development/building",
+              "development/debugging"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Architecture",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "architecture/overview",
+              "architecture/project-structure"
+            ]
+          },
+          {
+            "group": "State Management",
+            "pages": [
+              "architecture/state/overview",
+              "architecture/state/rainbow-store",
+              "architecture/state/query-store",
+              "architecture/state/derived-store"
+            ]
+          },
+          {
+            "group": "Core Systems",
+            "pages": [
+              "architecture/navigation",
+              "architecture/storage",
+              "architecture/analytics",
+              "architecture/logging"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Features",
+        "groups": [
+          {
+            "group": "Wallet Management",
+            "pages": [
+              "features/wallet/overview",
+              "features/wallet/accounts",
+              "features/wallet/backup-restore",
+              "features/wallet/hardware-wallets"
+            ]
+          },
+          {
+            "group": "Assets & Tokens",
+            "pages": [
+              "features/assets/overview",
+              "features/assets/token-list",
+              "features/assets/nfts",
+              "features/assets/collectibles"
+            ]
+          },
+          {
+            "group": "Swaps & Trading",
+            "pages": [
+              "features/swaps/overview",
+              "features/swaps/quote-fetching",
+              "features/swaps/gas-estimation",
+              "features/swaps/atomic-swaps"
+            ]
+          },
+          {
+            "group": "ENS Integration",
+            "pages": [
+              "features/ens/overview",
+              "features/ens/registration",
+              "features/ens/profiles",
+              "features/ens/avatars"
+            ]
+          },
+          {
+            "group": "DeFi & Positions",
+            "pages": [
+              "features/defi/overview",
+              "features/defi/positions",
+              "features/defi/perps",
+              "features/defi/predictions"
+            ]
+          },
+          {
+            "group": "WalletConnect",
+            "pages": [
+              "features/walletconnect/overview",
+              "features/walletconnect/dapp-connections",
+              "features/walletconnect/signing"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Component Library",
+        "groups": [
+          {
+            "group": "Design System",
+            "pages": [
+              "components/design-system/overview",
+              "components/design-system/layout",
+              "components/design-system/typography",
+              "components/design-system/styling"
+            ]
+          },
+          {
+            "group": "UI Components",
+            "pages": [
+              "components/buttons",
+              "components/sheets",
+              "components/modals",
+              "components/lists"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Contributing",
+        "groups": [
+          {
+            "group": "Guidelines",
+            "pages": [
+              "contributing/overview",
+              "contributing/code-conventions",
+              "contributing/testing",
+              "contributing/pull-requests"
+            ]
+          },
+          {
+            "group": "Resources",
+            "pages": [
+              "contributing/graphql",
+              "contributing/migrations",
+              "contributing/performance"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Multi-chain Ethereum wallet (iOS & Android)",
+    "Token swaps with quote aggregation",
+    "NFT collection and management",
+    "ENS domain registration and profiles",
+    "Hardware wallet support (Ledger)",
+    "WalletConnect protocol integration",
+    "Cloud backup and restore",
+    "DeFi positions tracking",
+    "Predictions and Polymarket integration",
+    "Custom state management with Zustand",
+    "Design system with styled components",
+    "Analytics and performance tracking"
+  ],
+  "publicApiSurface": [
+    "Wallet creation and import",
+    "Token balance queries",
+    "Swap quote and execution",
+    "NFT metadata fetching",
+    "ENS resolution and registration",
+    "Transaction signing and broadcasting",
+    "WalletConnect session management",
+    "Cloud backup encryption/decryption",
+    "Gas fee estimation",
+    "DeFi position tracking",
+    "Hardware wallet connection",
+    "Analytics event tracking"
+  ]
+}
